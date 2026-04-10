@@ -24,6 +24,7 @@ import {
   Banknote,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { scanReceipt } from '@/app/actions/scan-receipt';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Receipt {
@@ -49,14 +50,16 @@ function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-// ── Pure Utilities (outside component — no hooks) ─────────────────────────────
+// ── Pure Utilities ─────────────────────────────────────────────────────────────
 function base64ToBlob(base64: string, mimeType = 'image/jpeg'): Blob {
   const raw = base64.replace(/^data:image\/\w+;base64,/, '');
   const byteCharacters = atob(raw);
   const byteNumbers = new Array(byteCharacters.length);
+
   for (let i = 0; i < byteCharacters.length; i++) {
     byteNumbers[i] = byteCharacters.charCodeAt(i);
   }
+
   const byteArray = new Uint8Array(byteNumbers);
   return new Blob([byteArray as any], { type: mimeType });
 }
@@ -79,10 +82,9 @@ function formatCurrency(amount: number, currency = 'CAD'): string {
   }).format(amount);
 }
 
-// RFC 4180: wrap every field in double-quotes, escape internal quotes by doubling
 function escapeCSVField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '""';
-  return '"' + String(value).replace(/"/g, '""') + '"';
+  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 function exportToCSV(receipts: Receipt[]): void {
@@ -137,22 +139,25 @@ function exportToCSV(receipts: Receipt[]): void {
 
 /**
  * Returns true when running as an installed PWA on iOS 16 or below.
- * getUserMedia is broken in WKWebView standalone mode on those versions —
- * we fall back to <input capture> instead.
+ * getUserMedia is broken in WKWebView standalone mode on those versions.
  */
 function needsInputFallback(): boolean {
   if (typeof window === 'undefined') return false;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   if (!isIOS) return false;
+
   const isStandalone =
     window.matchMedia('(display-mode: standalone)').matches ||
     ('standalone' in window.navigator &&
       (window.navigator as any).standalone === true);
+
   if (!isStandalone) return false;
+
   const ver = parseInt(
     (navigator.userAgent.match(/OS (\d+)_/) ?? [])[1] ?? '0',
     10
   );
+
   return ver > 0 && ver < 17;
 }
 
@@ -183,6 +188,7 @@ function TabButton({
     'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all';
   const on = 'bg-blue-600 text-white shadow-lg shadow-blue-900/40';
   const off = 'text-slate-400 hover:text-slate-200';
+
   return (
     <button onClick={onClick} className={`${base} ${active ? on : off}`}>
       {icon}
@@ -273,7 +279,7 @@ export default function ReceiptScanner() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'history' && user) fetchReceipts();
+    if (activeTab === 'history' && user) void fetchReceipts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, user]);
 
@@ -312,10 +318,12 @@ export default function ReceiptScanner() {
 
   const capturePhoto = () => {
     if (!videoRef.current) return;
+
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
+
     setImage(canvas.toDataURL('image/jpeg', 0.8));
     stream?.getTracks().forEach((t) => t.stop());
     setStream(null);
@@ -324,28 +332,39 @@ export default function ReceiptScanner() {
   const handleFileFallback = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (ev) => setImage(ev.target?.result as string);
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  const processReceipt = () => {
+  const processReceipt = async () => {
+    if (!image) return;
     setIsProcessing(true);
-    setTimeout(() => {
-      setFormData({
-        vendor_name: 'Leduc Hardware',
-        total_amount: 105.0,
-        tax_amount: 5.0,
-        vendor_tax_number: '888123456RT0001',
-        transaction_date: todayISO(),
-        category: 'Supplies',
-        payment_method: 'Visa',
-        currency: 'CAD',
-        notes: 'Drill bits for Leduc project.',
-      });
+
+    try {
+      const result = await scanReceipt(image);
+
+      if (!result.success) {
+        alert(`Scan failed: ${result.error}`);
+        return;
+      }
+
+      setFormData((prev) => ({
+        ...prev,
+        vendor_name: result.data.vendor_name,
+        total_amount: result.data.total_amount,
+        tax_amount: result.data.tax_amount,
+        vendor_tax_number: result.data.vendor_tax_number,
+        transaction_date: result.data.transaction_date,
+        category: result.data.category,
+      }));
+    } catch (err: any) {
+      alert(`Scan failed: ${err?.message || 'Unexpected error.'}`);
+    } finally {
       setIsProcessing(false);
-    }, 1500);
+    }
   };
 
   const resetScanner = () => {
@@ -373,7 +392,10 @@ export default function ReceiptScanner() {
 
       const { error: uploadErr } = await supabase.storage
         .from('receipt-images')
-        .upload(filePath, blob, { contentType: 'image/jpeg', upsert: false });
+        .upload(filePath, blob, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
 
       if (uploadErr) throw uploadErr;
 
@@ -748,7 +770,7 @@ export default function ReceiptScanner() {
               {image && !isProcessing && (
                 <div className="p-4 border-t border-slate-700 flex flex-col gap-2">
                   <button
-                    onClick={processReceipt}
+                    onClick={() => void processReceipt()}
                     className="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 py-4 rounded-xl font-bold transition-colors"
                   >
                     Analyze with AI
@@ -801,6 +823,7 @@ export default function ReceiptScanner() {
                       className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 focus:outline-none p-2.5 rounded-lg text-sm text-white transition-colors"
                     />
                   </div>
+
                   <div className="space-y-1">
                     <label className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block text-right">
                       Date
@@ -837,6 +860,7 @@ export default function ReceiptScanner() {
                       className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 focus:outline-none p-2.5 rounded-lg text-sm text-white transition-colors"
                     />
                   </div>
+
                   <div className="space-y-1">
                     <label className="text-slate-500 text-[10px] uppercase font-bold tracking-wider block">
                       GST/HST ($)
@@ -981,6 +1005,7 @@ export default function ReceiptScanner() {
                 ? `${receipts.length} record${receipts.length !== 1 ? 's' : ''}`
                 : ' '}
             </p>
+
             <div className="flex items-center gap-1">
               <button
                 onClick={() => exportToCSV(receipts)}
@@ -997,7 +1022,7 @@ export default function ReceiptScanner() {
               </button>
 
               <button
-                onClick={fetchReceipts}
+                onClick={() => void fetchReceipts()}
                 disabled={isLoadingHistory}
                 className="flex items-center gap-1.5 text-slate-400 hover:text-blue-400 transition-colors text-sm py-1.5 px-3 rounded-lg"
               >
@@ -1038,7 +1063,7 @@ export default function ReceiptScanner() {
               </p>
               <p className="text-red-400/60 text-xs">{historyError}</p>
               <button
-                onClick={fetchReceipts}
+                onClick={() => void fetchReceipts()}
                 className="mt-1 text-sm bg-slate-800 hover:bg-slate-700 border border-slate-600 px-4 py-2 rounded-xl transition-colors"
               >
                 Try Again
@@ -1070,7 +1095,7 @@ export default function ReceiptScanner() {
                 <button
                   key={receipt.id}
                   onClick={() => setSelectedReceipt(receipt)}
-                  className="w-full text-left bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-slate-600 rounded-2xl p-4 transition-all group"
+                  className="w-full text-left bg-slate-800 border border-slate-700 hover:border-slate-600 rounded-2xl p-4 transition-all group"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -1088,6 +1113,7 @@ export default function ReceiptScanner() {
                         {receipt.currency || 'CAD'}
                       </p>
                     </div>
+
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-green-400 font-bold font-mono tabular-nums text-sm">
                         {formatCurrency(
