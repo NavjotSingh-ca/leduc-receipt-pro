@@ -26,7 +26,6 @@ import {
 import { supabase } from '@/lib/supabase';
 import { scanReceipt } from '@/app/actions/scan-receipt';
 
-// ── Types ──────────────────────────────────────────────────────────────────────
 interface Receipt {
   id: string;
   user_id: string;
@@ -45,12 +44,10 @@ interface Receipt {
 
 type Tab = 'scanner' | 'history';
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-// ── Pure Utilities ─────────────────────────────────────────────────────────────
 function base64ToBlob(base64: string, mimeType = 'image/jpeg'): Blob {
   const raw = base64.replace(/^data:image\/\w+;base64,/, '');
   const byteCharacters = atob(raw);
@@ -137,10 +134,6 @@ function exportToCSV(receipts: Receipt[]): void {
   setTimeout(() => URL.revokeObjectURL(url), 250);
 }
 
-/**
- * Returns true when running as an installed PWA on iOS 16 or below.
- * getUserMedia is broken in WKWebView standalone mode on those versions.
- */
 function needsInputFallback(): boolean {
   if (typeof window === 'undefined') return false;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -161,7 +154,6 @@ function needsInputFallback(): boolean {
   return ver > 0 && ver < 17;
 }
 
-// ── Category badge colours ─────────────────────────────────────────────────────
 const CATEGORY_COLORS: Record<string, string> = {
   'Office Supplies': 'bg-blue-900/50 text-blue-300',
   'Meals & Entertainment': 'bg-orange-900/50 text-orange-300',
@@ -172,7 +164,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 const DEFAULT_CAT = 'bg-slate-700 text-slate-300';
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
 function TabButton({
   active,
   onClick,
@@ -219,9 +210,7 @@ function Field({
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
 export default function ReceiptScanner() {
-  // ── Auth state
   const [user, setUser] = useState<any>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -229,7 +218,6 @@ export default function ReceiptScanner() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // ── Scanner state
   const [image, setImage] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -246,10 +234,7 @@ export default function ReceiptScanner() {
     notes: '',
   });
 
-  // ── Navigation
   const [activeTab, setActiveTab] = useState<Tab>('scanner');
-
-  // ── History state
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -257,7 +242,6 @@ export default function ReceiptScanner() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // ── Effects ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
@@ -280,10 +264,8 @@ export default function ReceiptScanner() {
 
   useEffect(() => {
     if (activeTab === 'history' && user) void fetchReceipts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, user]);
 
-  // ── Auth handlers ─────────────────────────────────────────────────────────────
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -297,7 +279,6 @@ export default function ReceiptScanner() {
     setAuthLoading(false);
   };
 
-  // ── Scanner handlers ──────────────────────────────────────────────────────────
   const startCamera = async () => {
     setImage(null);
 
@@ -431,7 +412,6 @@ export default function ReceiptScanner() {
     }
   };
 
-  // ── History handlers ──────────────────────────────────────────────────────────
   const fetchReceipts = async () => {
     if (!user) return;
     setIsLoadingHistory(true);
@@ -453,9 +433,6 @@ export default function ReceiptScanner() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ── RENDER: Auth Screen
-  // ─────────────────────────────────────────────────────────────────────────────
   if (!user) {
     return (
       <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
@@ -542,9 +519,6 @@ export default function ReceiptScanner() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ── RENDER: Receipt Detail Screen
-  // ─────────────────────────────────────────────────────────────────────────────
   if (selectedReceipt) {
     return (
       <main className="min-h-screen bg-[#0f172a] text-white flex flex-col items-center">
@@ -610,36 +584,12 @@ export default function ReceiptScanner() {
             </div>
 
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden divide-y divide-slate-700/60">
-              <Field
-                icon={<Building size={14} />}
-                label="Vendor"
-                value={selectedReceipt.vendor_name}
-              />
-              <Field
-                icon={<Calendar size={14} />}
-                label="Date"
-                value={formatDate(selectedReceipt.transaction_date)}
-              />
-              <Field
-                icon={<CreditCard size={14} />}
-                label="Payment Method"
-                value={selectedReceipt.payment_method || '—'}
-              />
-              <Field
-                icon={<Banknote size={14} />}
-                label="Currency"
-                value={selectedReceipt.currency || 'CAD'}
-              />
-              <Field
-                icon={<Hash size={14} />}
-                label="Business Number"
-                value={selectedReceipt.vendor_tax_number || '—'}
-              />
-              <Field
-                icon={<Tag size={14} />}
-                label="Category"
-                value={selectedReceipt.category || '—'}
-              />
+              <Field icon={<Building size={14} />} label="Vendor" value={selectedReceipt.vendor_name} />
+              <Field icon={<Calendar size={14} />} label="Date" value={formatDate(selectedReceipt.transaction_date)} />
+              <Field icon={<CreditCard size={14} />} label="Payment Method" value={selectedReceipt.payment_method || '—'} />
+              <Field icon={<Banknote size={14} />} label="Currency" value={selectedReceipt.currency || 'CAD'} />
+              <Field icon={<Hash size={14} />} label="Business Number" value={selectedReceipt.vendor_tax_number || '—'} />
+              <Field icon={<Tag size={14} />} label="Category" value={selectedReceipt.category || '—'} />
             </div>
 
             {selectedReceipt.notes ? (
@@ -659,9 +609,6 @@ export default function ReceiptScanner() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ── RENDER: Main App
-  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <main className="min-h-screen bg-[#0f172a] text-white p-4 flex flex-col items-center">
       <header className="w-full max-w-md my-4 flex justify-between items-start px-2 border-b border-slate-800 pb-4">
@@ -953,9 +900,7 @@ export default function ReceiptScanner() {
                     className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 focus:outline-none p-2.5 rounded-lg text-sm text-white transition-colors"
                   >
                     <option value="Office Supplies">Office Supplies</option>
-                    <option value="Meals & Entertainment">
-                      Meals &amp; Entertainment
-                    </option>
+                    <option value="Meals & Entertainment">Meals &amp; Entertainment</option>
                     <option value="Travel">Travel</option>
                     <option value="Fuel">Fuel</option>
                     <option value="Professional Fees">Professional Fees</option>
