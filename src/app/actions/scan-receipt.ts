@@ -2,6 +2,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface ScannedReceiptData {
   vendor_name: string;
@@ -15,11 +16,13 @@ export interface ScannedReceiptData {
   transaction_time: string; // HH:MM 24-hour or ""
   category: string;
   notes: string;            // Smart Business Purpose
+  confidence_score: number; // 0–100 — lower if BN or total is missing
 }
 
 interface ScanResult { success: true;  data: ScannedReceiptData }
 interface ScanError  { success: false; error: string }
 export type ScanReceiptResult = ScanResult | ScanError;
+
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const CURRENT_YEAR = 2026;
@@ -66,6 +69,7 @@ const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
   YT: { gst: 0.05, pst: 0.00 },
 };
 
+
 // ── Prompt builder ─────────────────────────────────────────────────────────────
 function buildPrompt(): string {
   return `You are a senior Canadian CPA specializing in CRA-compliant expense management for businesses across all provinces.
@@ -86,7 +90,9 @@ Required JSON schema — every field is mandatory:
   "transaction_date":  "string — YYYY-MM-DD format",
   "transaction_time":  "string — HH:MM in 24-hour format, or empty string if not on receipt",
   "category":          "string — EXACTLY one of: ${VALID_CATEGORIES.join(' | ')}",
-  "notes":             "string — specific CRA-audit-ready business purpose, minimum 8 words, mentioning vendor type and business activity"
+  "notes":             "string — specific CRA-audit-ready business purpose, minimum 8 words, mentioning vendor type and business activity",
+  "business_number":   "string — CRA Business Number / GST number in the form 9 digits followed by RT0001 (e.g. 123456789RT0001), or empty string if truly not present anywhere on the receipt",
+  "confidence_score":  number — your 0–100 confidence that all amounts, BN, and totals are correct given the image quality"
 }
 
 RULE 1 — DATE RESOLUTION:
@@ -97,6 +103,7 @@ RULE 1 — DATE RESOLUTION:
 
 RULE 2 — TAX SEPARATION BY PROVINCE (infer from vendor_address):
   Alberta / NWT / Nunavut / Yukon: GST 5% only — pst_amount = 0.
+  For Alberta receipts, PST is ALWAYS 0.00 even if the printed slip appears to show PST or HST.
   British Columbia: GST 5% + PST 7%. Split into tax_amount and pst_amount.
   Ontario: HST 13% = 5% GST + 8% provincial. tax_amount = 5% portion, pst_amount = 8% portion.
   Nova Scotia / New Brunswick / Newfoundland / PEI: HST 15% = 5% + 10%. Split accordingly.
@@ -106,7 +113,9 @@ RULE 2 — TAX SEPARATION BY PROVINCE (infer from vendor_address):
   If province is undetectable and tax ≈ 5% of subtotal: treat as GST only, pst_amount = 0.
 
 RULE 3 — PAYMENT & CARD DIGITS:
+  You MUST search carefully in the payment section for the keywords: "Mastercard", "MC", "Visa", "Amex", "American Express", "Debit", "Cash".
   Detect: VISA, MASTERCARD, MC, AMEX, AMERICAN EXPRESS, DEBIT, CASH on the receipt slip.
+  If you see the word "Credit" without a card brand but you can see the card number, infer the brand from the first digit of the card number: 4 = Visa, 5 = Mastercard.
   card_last_four = the last 4 digits from a masked number like "XXXX XXXX XXXX 1234" or "****5678".
   If cash or no card number visible: card_last_four = "".
 
@@ -124,8 +133,23 @@ RULE 5 — SMART BUSINESS PURPOSE:
     Meals → "Business lunch at [vendor] with client for project discussion"
     Office Supplies → "Printer toner and paper purchased at [vendor] for office operations"
 
+RULE 6 — GST/BUSINESS NUMBER (BN) PRIORITY:
+  The CRA Business Number / GST number is the MOST IMPORTANT field for CRA compliance.
+  A valid BN has exactly 9 digits followed immediately by "RT0001", e.g. "123456789RT0001".
+  You must actively search the ENTIRE receipt (header, footer, small print) for this 9-digit + RT0001 pattern.
+  If you find more than one such pattern, choose the one that clearly belongs to the business issuing the receipt.
+  If you cannot find any valid 9-digit + RT0001 pattern, set business_number to "".
+
+RULE 7 — CONFIDENCE SCORE:
+  confidence_score is an integer from 0 to 100.
+  If the BN (business_number) is missing or uncertain, your confidence_score should be low.
+  If the total_amount is missing or you had to infer it from partial data, your confidence_score should be low.
+  High-quality image + clear BN + clear total + consistent tax math → confidence_score near 100.
+  Blurry image, missing BN, or unclear totals → confidence_score closer to 20–40.
+
 OUTPUT: Return ONLY the JSON object. Nothing else.`.trim();
 }
+
 
 // ── Image preparation ──────────────────────────────────────────────────────────
 /**
@@ -147,6 +171,7 @@ function prepareImage(raw: string): { data: string; mimeType: string } {
   };
 }
 
+
 // ── JSON extraction ────────────────────────────────────────────────────────────
 /**
  * Strip markdown fences and extract the first complete {...} block.
@@ -166,6 +191,7 @@ function extractJSON(raw: string): string {
   return s;
 }
 
+
 // ── Value coercers ─────────────────────────────────────────────────────────────
 function toNum(v: unknown): number {
   const n = parseFloat(
@@ -178,6 +204,7 @@ function toNum(v: unknown): number {
 function toStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
+
 
 // ── Date normalizer ────────────────────────────────────────────────────────────
 function normalizeDate(raw: string): string {
@@ -229,6 +256,7 @@ function normalizeDate(raw: string): string {
   return `${CURRENT_YEAR}-04-10`;
 }
 
+
 // ── Time normalizer ────────────────────────────────────────────────────────────
 function normalizeTime(raw: string): string {
   const s = raw.trim();
@@ -254,6 +282,7 @@ function normalizeTime(raw: string): string {
   return '';
 }
 
+
 // ── Card digit extractor ───────────────────────────────────────────────────────
 function normalizeCard(raw: string): string {
   const digits = raw.replace(/\D/g, '');
@@ -262,7 +291,8 @@ function normalizeCard(raw: string): string {
   return '';
 }
 
-// ── Province detector ──────────────────────────────────────────────────────────
+
+// ── Province detector ─────────────────────────────────────────────────────────
 function detectProvince(address: string): string {
   const up = address.toUpperCase();
 
@@ -286,7 +316,8 @@ function detectProvince(address: string): string {
   return 'AB'; // Default: Alberta (where the business is based)
 }
 
-// ── Tax reconciliation ─────────────────────────────────────────────────────────
+
+// ── Tax reconciliation ────────────────────────────────────────────────────────
 interface RawAmounts { total: number; subtotal: number; gst: number; pst: number }
 
 function reconcileTaxes(
@@ -298,13 +329,13 @@ function reconcileTaxes(
   const province = detectProvince(address);
   const rates    = PROVINCE_TAX[province] ?? PROVINCE_TAX['AB'];
 
-  // ── Case 1: subtotal known, taxes missing ────────────────────────────────────
+  // ── Case 1: subtotal known, taxes missing ───────────────────────────────────
   if (subtotal > 0 && gst === 0 && pst === 0) {
     gst = Math.round(subtotal * rates.gst * 100) / 100;
     pst = Math.round(subtotal * rates.pst * 100) / 100;
   }
 
-  // ── Case 2: total + subtotal known, combined tax unknown ─────────────────────
+  // ── Case 2: total + subtotal known, combined tax unknown ────────────────────
   if (total > 0 && subtotal > 0 && gst === 0 && pst === 0) {
     const combined = Math.max(0, Math.round((total - subtotal) * 100) / 100);
     if (rates.pst > 0 && combined > 0) {
@@ -317,7 +348,7 @@ function reconcileTaxes(
     }
   }
 
-  // ── Case 3: only total is known ──────────────────────────────────────────────
+  // ── Case 3: only total is known ─────────────────────────────────────────────
   if (total > 0 && subtotal === 0 && gst === 0 && pst === 0) {
     const divisor = 1 + rates.gst + rates.pst;
     subtotal = Math.round((total / divisor) * 100) / 100;
@@ -325,12 +356,12 @@ function reconcileTaxes(
     pst      = Math.round(subtotal * rates.pst * 100) / 100;
   }
 
-  // ── Repair subtotal if still missing ─────────────────────────────────────────
+  // ── Repair subtotal if still missing ────────────────────────────────────────
   if (subtotal === 0 && total > 0) {
     subtotal = Math.max(0, Math.round((total - gst - pst) * 100) / 100);
   }
 
-  // ── Compute authoritative total ───────────────────────────────────────────────
+  // ── Compute authoritative total ─────────────────────────────────────────────
   const total_amount = Math.round((subtotal + gst + pst) * 100) / 100 || total;
 
   return {
@@ -341,7 +372,55 @@ function reconcileTaxes(
   };
 }
 
-// ── Full sanitizer ─────────────────────────────────────────────────────────────
+
+// ── Confidence score helper ───────────────────────────────────────────────────
+function computeConfidenceScore(options: {
+  hasBNPattern: boolean;
+  modelTotal: number;
+  sanitized: {
+    total_amount: number;
+    vendor_name: string;
+    transaction_date: string;
+    vendor_address: string;
+  };
+}): number {
+  let score = 100;
+
+  const { hasBNPattern, modelTotal, sanitized } = options;
+
+  // BN missing → heavy penalty
+  if (!hasBNPattern) {
+    score -= 45;
+  }
+
+  // Model did not explicitly provide a total → penalty
+  if (modelTotal <= 0) {
+    score -= 30;
+  }
+
+  // Sanitized total still zero → additional penalty
+  if (sanitized.total_amount <= 0) {
+    score -= 10;
+  }
+
+  // Weak vendor metadata → small penalties
+  if (!sanitized.vendor_name || sanitized.vendor_name === 'Unknown Vendor') {
+    score -= 5;
+  }
+  if (!sanitized.transaction_date) {
+    score -= 5;
+  }
+  if (!sanitized.vendor_address) {
+    score -= 5;
+  }
+
+  // Clamp and normalize
+  const finalScore = Math.max(0, Math.min(100, Math.round(score)));
+  return finalScore;
+}
+
+
+// ── Full sanitizer ────────────────────────────────────────────────────────────
 function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const vendor_name    = toStr(raw.vendor_name) || 'Unknown Vendor';
   const vendor_address = toStr(raw.vendor_address);
@@ -364,6 +443,29 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     vendor_address,
   );
 
+  // BN detection from model field
+  const businessNumberRaw = toStr((raw as any).business_number);
+  const bnNormalized = businessNumberRaw.replace(/\s|-/g, '');
+  const hasBNPattern = /\b\d{9}RT0001\b/i.test(bnNormalized);
+
+  // Use original model total (pre-reconciliation) for confidence heuristic
+  const modelTotal = toNum(raw.total_amount);
+
+  const transaction_date = normalizeDate(toStr(raw.transaction_date));
+  const transaction_time = normalizeTime(toStr(raw.transaction_time));
+  const card_last_four   = normalizeCard(toStr(raw.card_last_four));
+
+  const confidence_score = computeConfidenceScore({
+    hasBNPattern,
+    modelTotal,
+    sanitized: {
+      total_amount,
+      vendor_name,
+      transaction_date,
+      vendor_address,
+    },
+  });
+
   return {
     vendor_name,
     vendor_address,
@@ -371,13 +473,15 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     subtotal,
     tax_amount,
     pst_amount,
-    card_last_four:   normalizeCard(toStr(raw.card_last_four)),
-    transaction_date: normalizeDate(toStr(raw.transaction_date)),
-    transaction_time: normalizeTime(toStr(raw.transaction_time)),
+    card_last_four,
+    transaction_date,
+    transaction_time,
     category,
     notes,
+    confidence_score,
   };
 }
+
 
 // ── Main export ────────────────────────────────────────────────────────────────
 export async function scanReceipt(base64Image: string): Promise<ScanReceiptResult> {
@@ -428,7 +532,7 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
       return { success: false, error: 'AI returned an empty response. Please try again.' };
     }
 
-    // ── Parse ────────────────────────────────────────────────────────────────
+    // ── Parse ──────────────────────────────────────────────────────────────────
     const jsonString = extractJSON(rawText);
 
     let parsed: Record<string, unknown>;

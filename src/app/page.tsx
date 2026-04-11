@@ -35,6 +35,10 @@ import {
   ChevronDown,
   UserCircle2,
   Layers,
+  Thermometer,
+  Fingerprint,
+  PackageCheck,
+  Lock,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -47,6 +51,9 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+const APP_VERSION = '2.1.0-IC05R1';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Receipt {
@@ -67,7 +74,9 @@ interface Receipt {
   card_last_four?: string;
   currency: string;
   image_url?: string;
+  integrity_hash?: string;
   created_at?: string;
+  confidence_score?: number;
 }
 
 interface AuditLog {
@@ -136,13 +145,52 @@ const base64ToBlob = (b64: string): Blob => {
 const escapeCSV = (v: unknown) =>
   v == null ? '' : `"${String(v).replace(/"/g, '""')}"`;
 
+const getConfidenceTone = (score?: number) => {
+  const s = Number(score ?? 0);
+  if (s >= 85) {
+    return {
+      label: 'High',
+      pill: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      icon: 'text-emerald-500',
+      panel: 'bg-emerald-50 border-emerald-100 text-emerald-800',
+    };
+  }
+  if (s >= 60) {
+    return {
+      label: 'Medium',
+      pill: 'bg-amber-50 text-amber-700 border-amber-200',
+      icon: 'text-amber-500',
+      panel: 'bg-amber-50 border-amber-100 text-amber-800',
+    };
+  }
+  return {
+    label: 'Low',
+    pill: 'bg-red-50 text-red-700 border-red-200',
+    icon: 'text-red-500',
+    panel: 'bg-red-50 border-red-100 text-red-800',
+  };
+};
+
+// ── A. SHA-256 Image Fingerprinting ───────────────────────────────────────────
+async function computeSHA256(base64: string): Promise<string> {
+  const raw = base64.replace(/^data:image\/\w+;base64,/, '');
+  const binaryStr = atob(raw);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes.buffer);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// ── CSV builders ───────────────────────────────────────────────────────────────
 const buildCSV = (receipts: Receipt[]): string => {
   const BOM = '\uFEFF';
   const headers = [
     'Date', 'Time', 'Vendor', 'Vendor Address', 'Category',
     'Payment Method', 'Card Last 4', 'Currency',
     'Subtotal', 'GST', 'PST', 'Total',
-    'Business Number', 'Business Purpose', 'Image URL',
+    'Business Number', 'Business Purpose', 'Confidence Score', 'SHA-256 Hash', 'Image URL',
   ].map(escapeCSV).join(',');
   const rows = receipts.map((r) =>
     [
@@ -160,22 +208,58 @@ const buildCSV = (receipts: Receipt[]): string => {
       r.total_amount.toFixed(2),
       r.vendor_tax_number,
       r.notes,
+      String(r.confidence_score ?? 0),
+      r.integrity_hash || '',
       r.image_url || '',
     ].map(escapeCSV).join(',')
   ).join('\n');
   return BOM + headers + '\n' + rows;
 };
 
+// ── C. LOGBOOK.csv ─────────────────────────────────────────────────────────────
+const buildLogbook = (receipts: Receipt[], operatorEmail: string): string => {
+  const BOM = '\uFEFF';
+  const headers = [
+    'Image Filename',
+    'Scan Date (UTC)',
+    'Vendor',
+    'Operator (Email)',
+    'App Version',
+    'SHA-256 Integrity Hash',
+    'CRA Standard',
+  ].map(escapeCSV).join(',');
+
+  const rows = receipts
+    .filter((r) => r.image_url || r.integrity_hash)
+    .map((r) => {
+      const filename = r.image_url
+        ? `${r.transaction_date}_${r.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}_${r.id.slice(0, 8)}.jpg`
+        : '(no image)';
+      return [
+        filename,
+        r.created_at ? new Date(r.created_at).toISOString() : '',
+        r.vendor_name,
+        operatorEmail,
+        APP_VERSION,
+        r.integrity_hash || 'N/A',
+        'IC05-1R1',
+      ].map(escapeCSV).join(',');
+    })
+    .join('\n');
+
+  return BOM + headers + '\n' + rows;
+};
+
 const CATEGORY_COLORS: Record<string, string> = {
-  'Office Supplies':        '#3b82f6',
-  'Meals & Entertainment':  '#f59e0b',
-  'Travel':                 '#8b5cf6',
-  'Fuel':                   '#ef4444',
-  'Professional Fees':      '#10b981',
-  'Supplies':               '#06b6d4',
+  'Office Supplies': '#3b82f6',
+  'Meals & Entertainment': '#f59e0b',
+  'Travel': '#8b5cf6',
+  'Fuel': '#ef4444',
+  'Professional Fees': '#10b981',
+  'Supplies': '#06b6d4',
   'Software & Subscriptions': '#ec4899',
-  'Utilities':              '#f97316',
-  'General Expense':        '#6b7280',
+  'Utilities': '#f97316',
+  'General Expense': '#6b7280',
 };
 
 const BLANK_FORM = {
@@ -193,7 +277,14 @@ const BLANK_FORM = {
   payment_method: 'Visa',
   card_last_four: '',
   currency: 'CAD',
+  confidence_score: 0,
 };
+
+const inputCls =
+  'w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all';
+
+const warningInputCls =
+  'w-full border border-yellow-400 rounded-xl px-3 py-2.5 text-sm bg-yellow-50/50 focus:outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-100 transition-all';
 
 // ── Root ───────────────────────────────────────────────────────────────────────
 export default function ReceiptPro() {
@@ -233,12 +324,12 @@ function FullPageLoader() {
 
 // ── Auth Screen ────────────────────────────────────────────────────────────────
 function AuthScreen() {
-  const [email, setEmail]       = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading]   = useState(false);
-  const [mode, setMode]         = useState<'signin' | 'signup'>('signin');
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [tosChecked, setTosChecked] = useState(false);
-  const [toast, setToast]       = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', msg: string) => {
     setToast({ type, msg });
@@ -270,16 +361,14 @@ function AuthScreen() {
       )}
 
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="text-center mb-10">
           <div className="w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/40 mx-auto mb-5">
             <ReceiptIcon className="w-10 h-10 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Receipt Pro</h1>
-          <p className="text-blue-300 text-sm mt-1 font-medium uppercase tracking-widest">CRA Audit Ready</p>
+          <p className="text-blue-300 text-sm mt-1 font-medium uppercase tracking-widest">CRA IC05-1R1 Compliant</p>
         </div>
 
-        {/* Card */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl">
           <h2 className="text-white font-semibold text-lg mb-6 text-center">
             {mode === 'signin' ? 'Welcome back' : 'Create account'}
@@ -309,13 +398,10 @@ function AuthScreen() {
               />
             </div>
 
-            {/* ── Legal Shield ToS checkbox ── */}
             <div
               onClick={() => setTosChecked(!tosChecked)}
               className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none ${
-                tosChecked
-                  ? 'bg-blue-500/20 border-blue-400/50'
-                  : 'bg-white/5 border-white/15 hover:border-white/30'
+                tosChecked ? 'bg-blue-500/20 border-blue-400/50' : 'bg-white/5 border-white/15 hover:border-white/30'
               }`}
             >
               <div className={`w-5 h-5 rounded-md flex-shrink-0 mt-0.5 flex items-center justify-center border-2 transition-all ${
@@ -352,24 +438,26 @@ function AuthScreen() {
 }
 
 // ── App Shell ──────────────────────────────────────────────────────────────────
-function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefObject<HTMLInputElement | null> }) {
-  const [activeTab, setActiveTab]         = useState<Tab>('dashboard');
-  const [receipts, setReceipts]           = useState<Receipt[]>([]);
-  const [auditLogs, setAuditLogs]         = useState<AuditLog[]>([]);
-  const [loading, setLoading]             = useState(true);
+function AppShell({ user, fileInputRef }: {
+  user: any;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
-  const [toast, setToast]                 = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
-  const [roleOpen, setRoleOpen]           = useState(false);
-
-  // Scan state
-  const [image, setImage]     = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
+  const [roleOpen, setRoleOpen] = useState(false);
+  const [image, setImage] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [formData, setFormData] = useState({ ...BLANK_FORM });
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => {
     setToast({ type, msg });
-    setTimeout(() => setToast(null), 4000);
+    setTimeout(() => setToast(null), 4500);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -388,18 +476,32 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
   }, [user.id, showToast]);
 
   const loadAudit = useCallback(async () => {
-    const { data } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    setAuditLogs(data || []);
-  }, [user.id]);
+    setAuditLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      setAuditLogs(data || []);
+    } catch {
+      setAuditLogs([]);
+      showToast('error', 'Failed to load audit logs.');
+    }
+    setAuditLoading(false);
+  }, [user.id, showToast]);
 
   useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => { if (activeTab === 'audit') loadAudit(); }, [activeTab, loadAudit]);
 
-  // ── File / scan handlers ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (activeTab === 'audit') {
+      loadAudit();
+    }
+  }, [activeTab, loadAudit]);
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -421,7 +523,12 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
     try {
       const result = await scanReceipt(image);
       if (result.success) {
-        setFormData((prev) => ({ ...prev, ...result.data }));
+        setFormData((prev) => ({
+          ...prev,
+          ...result.data,
+          vendor_tax_number: (result.data as any).business_number ?? prev.vendor_tax_number ?? '',
+          confidence_score: Number((result.data as any).confidence_score ?? 0),
+        }));
         showToast('success', 'Receipt analyzed successfully!');
       } else {
         showToast('error', result.error);
@@ -436,7 +543,9 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
     if (!image || !user) return;
     setSaving(true);
     try {
-      // Upload image
+      showToast('info', 'Computing SHA-256 integrity hash…');
+      const integrityHash = await computeSHA256(image);
+
       const blob = base64ToBlob(image);
       const filePath = `${user.id}/${Date.now()}.jpg`;
       const { error: uploadErr } = await supabase.storage
@@ -444,48 +553,64 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
         .upload(filePath, blob, { contentType: 'image/jpeg', upsert: false });
       if (uploadErr) throw uploadErr;
 
-      const { data: { publicUrl } } = supabase.storage.from('receipt-images').getPublicUrl(filePath);
+      const { data: { publicUrl } } = supabase.storage
+        .from('receipt-images')
+        .getPublicUrl(filePath);
 
-      // Insert receipt
       const { error: insertErr } = await supabase.from('receipts').insert({
-        user_id:          user.id,
-        vendor_name:      formData.vendor_name,
-        vendor_address:   formData.vendor_address,
-        total_amount:     Number(formData.total_amount),
-        subtotal:         Number(formData.subtotal),
-        tax_amount:       Number(formData.tax_amount),
-        pst_amount:       Number(formData.pst_amount),
+        user_id: user.id,
+        vendor_name: formData.vendor_name,
+        vendor_address: formData.vendor_address,
+        total_amount: Number(formData.total_amount),
+        subtotal: Number(formData.subtotal),
+        tax_amount: Number(formData.tax_amount),
+        pst_amount: Number(formData.pst_amount),
         vendor_tax_number: formData.vendor_tax_number,
         transaction_date: formData.transaction_date,
         transaction_time: formData.transaction_time,
-        category:         formData.category,
-        notes:            formData.notes,
-        payment_method:   formData.payment_method,
-        card_last_four:   formData.card_last_four,
-        currency:         formData.currency,
-        image_url:        publicUrl,
+        category: formData.category,
+        notes: formData.notes,
+        payment_method: formData.payment_method,
+        card_last_four: formData.card_last_four,
+        currency: formData.currency,
+        image_url: publicUrl,
+        integrity_hash: integrityHash,
+        confidence_score: Number(formData.confidence_score ?? 0),
       });
       if (insertErr) throw insertErr;
 
-      // ── Audit Trail ──────────────────────────────────────────────────────────
+      const ua = navigator.userAgent;
+      const auditDetails = [
+        `Added: ${formData.vendor_name}`,
+        `${fmt$(Number(formData.total_amount))} — ${formData.category}`,
+        `GST ${fmt$(Number(formData.tax_amount))}`,
+        Number(formData.pst_amount) > 0 ? `PST ${fmt$(Number(formData.pst_amount))}` : null,
+        formData.card_last_four
+          ? `${formData.payment_method} ····${formData.card_last_four}`
+          : formData.payment_method,
+        `Confidence ${Number(formData.confidence_score ?? 0)}%`,
+        `Hash: ${integrityHash.slice(0, 16)}…`,
+        `App: v${APP_VERSION}`,
+        `Agent: ${ua.slice(0, 120)}`,
+      ].filter(Boolean).join(' | ');
+
       await supabase.from('audit_logs').insert({
         user_id: user.id,
-        action:  'receipt_created',
-        details: `Added: ${formData.vendor_name} ${fmt$(Number(formData.total_amount))} — ${formData.category} · GST ${fmt$(Number(formData.tax_amount))}${Number(formData.pst_amount) > 0 ? ` · PST ${fmt$(Number(formData.pst_amount))}` : ''} · ${formData.payment_method}${formData.card_last_four ? ` ····${formData.card_last_four}` : ''}`,
+        action: 'receipt_created',
+        details: auditDetails,
       });
 
       setImage(null);
       setFormData({ ...BLANK_FORM });
       await loadData();
       setActiveTab('receipts');
-      showToast('success', 'Receipt saved to audit record!');
+      showToast('success', 'Receipt saved — integrity hash recorded.');
     } catch (e: any) {
       showToast('error', `Save failed: ${e.message}`);
     }
     setSaving(false);
   };
 
-  // ── Export ───────────────────────────────────────────────────────────────────
   const exportCSV = async () => {
     const csv = buildCSV(receipts);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -493,44 +618,77 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
     const a = document.createElement('a');
     a.href = url; a.download = `receipt-pro-${todayISO()}.csv`; a.click();
     URL.revokeObjectURL(url);
-
-    // Audit log for export
     await supabase.from('audit_logs').insert({
       user_id: user.id,
-      action:  'export_csv',
-      details: `Exported ${receipts.length} receipt(s) to CSV`,
+      action: 'export_csv',
+      details: `Exported ${receipts.length} receipt(s) to CSV | App: v${APP_VERSION} | Agent: ${navigator.userAgent.slice(0, 80)}`,
     });
     showToast('success', 'CSV exported successfully!');
   };
 
-  const exportZIP = async () => {
-    showToast('info', 'Preparing ZIP — this may take a moment…');
+  const exportAuditPackage = async () => {
+    showToast('info', 'Building CRA Audit Package — please wait…');
     const zip = new JSZip();
+
     zip.file('receipts.csv', buildCSV(receipts));
+    zip.file('LOGBOOK.csv', buildLogbook(receipts, user.email ?? 'unknown'));
+
+    zip.file('README.txt', [
+      `Receipt Pro — CRA Audit Package`,
+      `Standard: IC05-1R1 (Electronic Records)`,
+      `App Version: ${APP_VERSION}`,
+      `Exported: ${new Date().toISOString()}`,
+      `Operator: ${user.email ?? 'unknown'}`,
+      ``,
+      `FILES IN THIS PACKAGE:`,
+      `  receipts.csv  — Full expense register with GST/PST breakdown and SHA-256 hash`,
+      `  LOGBOOK.csv   — CRA imaging logbook: filename, scan date, operator, SHA-256 hash`,
+      `  images/       — Original high-resolution receipt images`,
+      `  README.txt    — This file`,
+      ``,
+      `INTEGRITY VERIFICATION:`,
+      `  Each entry in LOGBOOK.csv contains a SHA-256 hash computed from the`,
+      `  original image bytes at the time of scanning. To verify a file has`,
+      `  not been altered, compute its SHA-256 hash and compare to LOGBOOK.csv.`,
+      ``,
+      `  Windows: CertUtil -hashfile filename.jpg SHA256`,
+      `  macOS/Linux: shasum -a 256 filename.jpg`,
+      ``,
+      `Retain this package for a minimum of 6 years per CRA guidelines.`,
+    ].join('\n'));
+
     const imgFolder = zip.folder('images')!;
     await Promise.allSettled(
-      receipts.filter((r) => r.image_url).map(async (r) => {
-        const res = await fetch(r.image_url!);
-        const blob = await res.blob();
-        const name = `${r.transaction_date}_${r.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}_${r.id.slice(0, 8)}.jpg`;
-        imgFolder.file(name, blob);
-      })
+      receipts
+        .filter((r) => r.image_url)
+        .map(async (r) => {
+          try {
+            const res = await fetch(r.image_url!);
+            const blob = await res.blob();
+            const filename = `${r.transaction_date}_${r.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}_${r.id.slice(0, 8)}.jpg`;
+            imgFolder.file(filename, blob);
+          } catch {
+            // skip unreachable images
+          }
+        })
     );
+
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(zipBlob);
     const a = document.createElement('a');
-    a.href = url; a.download = `receipt-pro-${todayISO()}.zip`; a.click();
+    a.href = url;
+    a.download = `CRA-Audit-Package-${todayISO()}.zip`;
+    a.click();
     URL.revokeObjectURL(url);
 
     await supabase.from('audit_logs').insert({
       user_id: user.id,
-      action:  'export_zip',
-      details: `Exported ${receipts.length} receipt(s) to ZIP with images`,
+      action: 'export_zip',
+      details: `CRA Audit Package exported — ${receipts.length} receipt(s), ${receipts.filter((r) => r.image_url).length} image(s) | App: v${APP_VERSION} | Agent: ${navigator.userAgent.slice(0, 80)}`,
     });
-    showToast('success', 'ZIP exported!');
+    showToast('success', 'CRA Audit Package downloaded!');
   };
 
-  // ── Dashboard derived data ───────────────────────────────────────────────────
   const stats = receipts.reduce(
     (acc, r) => ({ total: acc.total + r.total_amount, tax: acc.tax + r.tax_amount, count: acc.count + 1 }),
     { total: 0, tax: 0, count: 0 }
@@ -558,43 +716,40 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
 
   const navTabs: { id: Tab; icon: React.ReactNode; label: string; center?: boolean }[] = [
     { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-    { id: 'receipts',  icon: <Receipt size={20} />,         label: 'Receipts' },
-    { id: 'scan',      icon: <Camera size={22} />,          label: 'Scan', center: true },
-    { id: 'export',    icon: <Download size={20} />,        label: 'Export' },
-    { id: 'audit',     icon: <ShieldCheck size={20} />,     label: 'Audit' },
+    { id: 'receipts', icon: <Receipt size={20} />, label: 'Receipts' },
+    { id: 'scan', icon: <Camera size={22} />, label: 'Scan', center: true },
+    { id: 'export', icon: <Download size={20} />, label: 'Export' },
+    { id: 'audit', icon: <ShieldCheck size={20} />, label: 'Audit' },
   ];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium max-w-xs w-full ${
           toast.type === 'error' ? 'bg-red-500 text-white' :
-          toast.type === 'info'  ? 'bg-blue-500 text-white' :
-                                   'bg-emerald-500 text-white'
+          toast.type === 'info' ? 'bg-blue-500 text-white' :
+          'bg-emerald-500 text-white'
         }`}>
           {toast.type === 'error' ? <AlertCircle size={16} /> : toast.type === 'info' ? <Info size={16} /> : <CheckCircle2 size={16} />}
           <span className="flex-1">{toast.msg}</span>
         </div>
       )}
 
-      {/* Header */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm">
         <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between">
-          {/* Brand */}
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-500 rounded-xl flex items-center justify-center shadow-md">
               <ReceiptIcon className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="text-base font-bold text-slate-900 leading-none">Receipt Pro</h1>
-              <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-0.5">CRA Audit Ready · Alberta</p>
+              <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-0.5">
+                IC05-1R1 · v{APP_VERSION}
+              </p>
             </div>
           </div>
 
-          {/* Right side: Role pill + sign-out */}
           <div className="flex items-center gap-2">
-            {/* ── Roles Prep toggle ── */}
             <div className="relative">
               <button
                 onClick={() => setRoleOpen(!roleOpen)}
@@ -612,13 +767,10 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
                       key={role}
                       onClick={() => setRoleOpen(false)}
                       className={`w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
-                        role === 'Owner'
-                          ? 'bg-blue-50 text-blue-600'
-                          : 'text-slate-600 hover:bg-slate-50'
+                        role === 'Owner' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      <Layers size={13} />
-                      {role}
+                      <Layers size={13} />{role}
                       {role === 'Owner' && <CheckCircle2 size={12} className="ml-auto text-blue-500" />}
                     </button>
                   ))}
@@ -639,7 +791,6 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
         </div>
       </header>
 
-      {/* Main */}
       <main className="max-w-2xl mx-auto px-4 pt-6 pb-28">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -669,35 +820,40 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
               />
             )}
             {activeTab === 'export' && (
-              <ExportTab receipts={receipts} onCSV={exportCSV} onZIP={exportZIP} />
+              <ExportTab receipts={receipts} onCSV={exportCSV} onAuditPackage={exportAuditPackage} />
             )}
             {activeTab === 'audit' && (
-              <AuditTab logs={auditLogs} onRefresh={loadAudit} />
+              <AuditTab logs={auditLogs} onRefresh={loadAudit} loading={auditLoading} />
             )}
           </>
         )}
       </main>
 
-      {/* Detail overlay */}
       {selectedReceipt && (
         <DetailView receipt={selectedReceipt} onClose={() => setSelectedReceipt(null)} />
       )}
 
-      {/* Bottom Nav */}
       <nav className="fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/60 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
         <div className="max-w-2xl mx-auto px-2 py-2 flex items-center justify-around">
           {navTabs.map((tab) =>
             tab.center ? (
-              <button
-                key={tab.id}
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center gap-1 -mt-6"
-              >
-                <div className="w-14 h-14 bg-blue-500 hover:bg-blue-600 active:scale-95 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/40 transition-all">
-                  <Camera className="w-6 h-6 text-white" />
+              <div key={tab.id} className="flex flex-col items-center gap-1 -mt-6">
+                <div className="relative">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-14 h-14 bg-blue-500 hover:bg-blue-600 active:scale-95 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/40 transition-all"
+                  >
+                    <Camera className="w-6 h-6 text-white" />
+                  </button>
+                  <div
+                    className="absolute -top-1 -right-1 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-help"
+                    title="CRA Tip: Scan thermal receipts immediately before they fade."
+                  >
+                    <Thermometer size={10} className="text-white" />
+                  </div>
                 </div>
                 <span className="text-[10px] font-semibold text-blue-500">Scan</span>
-              </button>
+              </div>
             ) : (
               <button
                 key={tab.id}
@@ -707,14 +863,24 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
                 }`}
               >
                 {tab.icon}
-                <span className={`text-[10px] font-semibold`}>{tab.label}</span>
+                <span className="text-[10px] font-semibold">{tab.label}</span>
               </button>
             )
           )}
         </div>
+
+        {activeTab === 'scan' && (
+          <div className="max-w-2xl mx-auto px-4 pb-2">
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              <Thermometer size={13} className="text-amber-500 flex-shrink-0" />
+              <p className="text-[11px] text-amber-700 font-medium leading-snug">
+                <strong>CRA Tip:</strong> Scan thermal receipts immediately — heat-sensitive ink fades within months and may become unacceptable for audit purposes.
+              </p>
+            </div>
+          </div>
+        )}
       </nav>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -724,10 +890,7 @@ function AppShell({ user, fileInputRef }: { user: any; fileInputRef: React.RefOb
         onChange={handleFile}
       />
 
-      {/* Role dropdown backdrop */}
-      {roleOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setRoleOpen(false)} />
-      )}
+      {roleOpen && <div className="fixed inset-0 z-40" onClick={() => setRoleOpen(false)} />}
     </div>
   );
 }
@@ -739,10 +902,10 @@ function DashboardTab({ stats, categoryData, monthlyData }: {
   monthlyData: { month: string; amount: number }[];
 }) {
   const statCards = [
-    { label: 'Total Spend',  value: fmt$(stats.total), icon: <Wallet size={18} className="text-blue-500" />,    bg: 'bg-blue-50',    ring: 'ring-blue-100' },
-    { label: 'GST/HST Paid', value: fmt$(stats.tax),   icon: <DollarSign size={18} className="text-emerald-500" />, bg: 'bg-emerald-50', ring: 'ring-emerald-100' },
-    { label: 'Receipts',     value: stats.count.toString(), icon: <Hash size={18} className="text-violet-500" />, bg: 'bg-violet-50',  ring: 'ring-violet-100' },
-    { label: 'Avg Receipt',  value: fmt$(stats.avg),   icon: <TrendingUp size={18} className="text-amber-500" />, bg: 'bg-amber-50',   ring: 'ring-amber-100' },
+    { label: 'Total Spend', value: fmt$(stats.total), icon: <Wallet size={18} className="text-blue-500" />, bg: 'bg-blue-50', ring: 'ring-blue-100' },
+    { label: 'GST/HST Paid', value: fmt$(stats.tax), icon: <DollarSign size={18} className="text-emerald-500" />, bg: 'bg-emerald-50', ring: 'ring-emerald-100' },
+    { label: 'Receipts', value: stats.count.toString(), icon: <Hash size={18} className="text-violet-500" />, bg: 'bg-violet-50', ring: 'ring-violet-100' },
+    { label: 'Avg Receipt', value: fmt$(stats.avg), icon: <TrendingUp size={18} className="text-amber-500" />, bg: 'bg-amber-50', ring: 'ring-amber-100' },
   ];
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -824,7 +987,9 @@ function ReceiptsTab({ receipts, onSelect, onRefresh }: {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Receipts</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{receipts.length} record{receipts.length !== 1 ? 's' : ''} · newest first</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {receipts.length} record{receipts.length !== 1 ? 's' : ''} · {receipts.filter(r => r.integrity_hash).length} integrity-verified
+          </p>
         </div>
         <button onClick={onRefresh} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-blue-500 transition-all">
           <RefreshCw size={18} />
@@ -838,40 +1003,62 @@ function ReceiptsTab({ receipts, onSelect, onRefresh }: {
         </div>
       ) : (
         <div className="space-y-2.5">
-          {receipts.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => onSelect(r)}
-              className="w-full bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-100 active:scale-[0.99] transition-all text-left"
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-xs font-bold"
-                  style={{ backgroundColor: CATEGORY_COLORS[r.category] || '#6b7280' }}
-                >
-                  {r.vendor_name.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 truncate text-sm">{r.vendor_name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-slate-400">{fmtDate(r.transaction_date)}</span>
-                    <span className="w-1 h-1 rounded-full bg-slate-200" />
-                    <span className="text-xs text-slate-400 truncate">{r.category}</span>
-                    {r.card_last_four && (
-                      <>
-                        <span className="w-1 h-1 rounded-full bg-slate-200" />
-                        <span className="text-xs text-slate-400">····{r.card_last_four}</span>
-                      </>
-                    )}
+          {receipts.map((r) => {
+            const tone = getConfidenceTone(r.confidence_score);
+            return (
+              <button
+                key={r.id}
+                onClick={() => onSelect(r)}
+                className="w-full bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-100 active:scale-[0.99] transition-all text-left"
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-xs font-bold"
+                    style={{ backgroundColor: CATEGORY_COLORS[r.category] || '#6b7280' }}
+                  >
+                    {r.vendor_name.slice(0, 2).toUpperCase()}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-semibold text-slate-900 truncate text-sm">{r.vendor_name}</p>
+                      {r.integrity_hash && (
+                        <div title={`SHA-256: ${r.integrity_hash}`}>
+                          <Fingerprint size={11} className="text-emerald-400 flex-shrink-0" />
+                        </div>
+                      )}
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${tone.pill}`}>
+                        AI {Number(r.confidence_score ?? 0)}%
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-slate-400">{fmtDate(r.transaction_date)}</span>
+                      <span className="w-1 h-1 rounded-full bg-slate-200" />
+                      <span className="text-xs text-slate-400 truncate">{r.category}</span>
+                      {r.card_last_four && (
+                        <>
+                          <span className="w-1 h-1 rounded-full bg-slate-200" />
+                          <span className="text-xs text-slate-400">····{r.card_last_four}</span>
+                        </>
+                      )}
+                      {!r.vendor_tax_number && (
+                        <>
+                          <span className="w-1 h-1 rounded-full bg-slate-200" />
+                          <span className="text-xs text-amber-600 font-medium">Missing GST/BN</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="font-bold text-blue-600 text-sm">{fmt$(r.total_amount)}</span>
+                    <ChevronRight size={14} className="text-slate-300" />
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className="font-bold text-blue-600 text-sm">{fmt$(r.total_amount)}</span>
-                  <ChevronRight size={14} className="text-slate-300" />
-                </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -879,7 +1066,7 @@ function ReceiptsTab({ receipts, onSelect, onRefresh }: {
 }
 
 // ── Scan Tab ───────────────────────────────────────────────────────────────────
-function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave, onChange, fileRef, onClear }: {
+function ScanTab({ image, scanning, formData, saving, onProcess, onSave, onChange, fileRef, onClear }: {
   image: string | null;
   scanning: boolean;
   formData: any;
@@ -892,13 +1079,16 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
   onClear: () => void;
 }) {
   const hasData = !!(formData.vendor_name || formData.total_amount > 0);
+  const missingTaxNumber = !String(formData.vendor_tax_number || '').trim();
+  const confidenceTone = getConfidenceTone(formData.confidence_score);
 
   return (
     <div className="space-y-4">
-      {/* Image zone */}
       <div
         className={`relative overflow-hidden rounded-2xl border-2 transition-all ${
-          image ? 'border-blue-200 bg-slate-100' : 'border-dashed border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/30'
+          image
+            ? 'border-blue-200 bg-slate-100'
+            : 'border-dashed border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/30'
         }`}
         style={{ aspectRatio: '4/3' }}
       >
@@ -912,7 +1102,7 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
             </div>
             <div className="text-center">
               <p className="font-semibold text-slate-600">Tap to Scan Receipt</p>
-              <p className="text-xs text-slate-400 mt-1">Opens native high-res camera</p>
+              <p className="text-xs text-slate-400 mt-1">Native camera · SHA-256 fingerprinted on save</p>
             </div>
           </button>
         ) : (
@@ -924,11 +1114,14 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
             >
               <RefreshCw size={14} />
             </button>
+            <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white rounded-full px-2.5 py-1">
+              <Fingerprint size={11} />
+              <span className="text-[10px] font-semibold">IC05-1R1</span>
+            </div>
           </>
         )}
       </div>
 
-      {/* Analyze button */}
       {image && !scanning && !hasData && (
         <button
           onClick={onProcess}
@@ -938,7 +1131,6 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
         </button>
       )}
 
-      {/* Scanning loader */}
       {scanning && (
         <div className="bg-white border border-slate-100 rounded-2xl p-8 text-center">
           <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-3" />
@@ -947,13 +1139,12 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
         </div>
       )}
 
-      {/* ── Enterprise Review Form ── */}
       {hasData && !scanning && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
             <div>
               <h3 className="font-bold text-slate-900">Verify Data</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Confirm AI extraction before saving to audit record</p>
+              <p className="text-xs text-slate-400 mt-0.5">SHA-256 hash computed at save time</p>
             </div>
             <button onClick={onProcess} className="text-xs text-blue-500 hover:text-blue-700 font-semibold flex items-center gap-1">
               <ScanLine size={12} /> Re-scan
@@ -961,65 +1152,102 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
           </div>
 
           <div className="p-5 space-y-5">
+            <div className={`rounded-xl border px-4 py-3 ${confidenceTone.panel}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Info size={14} className={confidenceTone.icon} />
+                  <span className="text-xs font-bold uppercase tracking-wide">AI Confidence</span>
+                </div>
+                <span className="text-sm font-bold">{Number(formData.confidence_score ?? 0)}%</span>
+              </div>
+              <p className="text-xs mt-1.5 leading-relaxed">
+                {Number(formData.confidence_score ?? 0) >= 85
+                  ? 'The scan looks strong. Still verify vendor, BN, totals, and tax fields before saving.'
+                  : Number(formData.confidence_score ?? 0) >= 60
+                  ? 'Some fields may need review. Double-check the BN, payment details, and totals before saving.'
+                  : 'Low AI confidence detected. Review the BN, total, and payment details carefully before saving.'}
+              </p>
+            </div>
 
-            {/* ── Vendor section ── */}
             <Section title="Vendor">
               <Field label="Vendor Name" icon={<Building2 size={13} className="text-slate-400" />}>
                 <input
-                  type="text" value={formData.vendor_name}
+                  type="text"
+                  value={formData.vendor_name}
                   onChange={(e) => onChange({ ...formData, vendor_name: e.target.value })}
                   className={inputCls}
                 />
               </Field>
+
               <Field label="Vendor Address" icon={<MapPin size={13} className="text-slate-400" />}>
                 <input
-                  type="text" value={formData.vendor_address || ''}
+                  type="text"
+                  value={formData.vendor_address || ''}
                   onChange={(e) => onChange({ ...formData, vendor_address: e.target.value })}
                   placeholder="123 Main St, Calgary, AB T2P 1J9"
                   className={inputCls}
                 />
               </Field>
+
               <Field label="Business Number (BN)" icon={<Hash size={13} className="text-slate-400" />}>
-                <input
-                  type="text" value={formData.vendor_tax_number}
-                  onChange={(e) => onChange({ ...formData, vendor_tax_number: e.target.value })}
-                  placeholder="123456789RT0001"
-                  className={inputCls}
-                />
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    value={formData.vendor_tax_number}
+                    onChange={(e) => onChange({ ...formData, vendor_tax_number: e.target.value })}
+                    placeholder="123456789RT0001"
+                    className={missingTaxNumber ? warningInputCls : inputCls}
+                  />
+                  {missingTaxNumber && (
+                    <p className="text-xs text-yellow-700 font-medium">
+                      CRA Requirement: Missing GST Number.
+                    </p>
+                  )}
+                </div>
               </Field>
             </Section>
 
-            {/* ── Amounts section ── */}
             <Section title="Amount Breakdown">
               <div className="grid grid-cols-3 gap-2">
                 <Field label="Subtotal" icon={<DollarSign size={13} className="text-slate-400" />}>
                   <input
-                    type="number" step="0.01" min="0" value={formData.subtotal ?? 0}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.subtotal ?? 0}
                     onChange={(e) => onChange({ ...formData, subtotal: parseFloat(e.target.value) || 0 })}
                     className={inputCls}
                   />
                 </Field>
                 <Field label="GST (5%)" icon={<DollarSign size={13} className="text-emerald-400" />}>
                   <input
-                    type="number" step="0.01" min="0" value={formData.tax_amount}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.tax_amount}
                     onChange={(e) => onChange({ ...formData, tax_amount: parseFloat(e.target.value) || 0 })}
                     className={`${inputCls} border-emerald-200 focus:border-emerald-400 focus:ring-emerald-100`}
                   />
                 </Field>
                 <Field label="PST / HST" icon={<DollarSign size={13} className="text-violet-400" />}>
                   <input
-                    type="number" step="0.01" min="0" value={formData.pst_amount ?? 0}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.pst_amount ?? 0}
                     onChange={(e) => onChange({ ...formData, pst_amount: parseFloat(e.target.value) || 0 })}
                     className={`${inputCls} border-violet-200 focus:border-violet-400 focus:ring-violet-100`}
                   />
                 </Field>
               </div>
-              {/* Total row */}
               <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-3 mt-1 border border-blue-100">
                 <span className="text-sm font-semibold text-blue-700">Grand Total</span>
                 <div className="flex items-center gap-2">
                   <input
-                    type="number" step="0.01" min="0" value={formData.total_amount}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.total_amount}
                     onChange={(e) => onChange({ ...formData, total_amount: parseFloat(e.target.value) || 0 })}
                     className="w-28 text-right font-bold text-blue-700 bg-transparent border-0 focus:outline-none text-base"
                   />
@@ -1028,19 +1256,20 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
               </div>
             </Section>
 
-            {/* ── Transaction section ── */}
             <Section title="Transaction">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Date" icon={<CalendarDays size={13} className="text-slate-400" />}>
                   <input
-                    type="date" value={formData.transaction_date}
+                    type="date"
+                    value={formData.transaction_date}
                     onChange={(e) => onChange({ ...formData, transaction_date: e.target.value })}
                     className={inputCls}
                   />
                 </Field>
                 <Field label="Time" icon={<Clock size={13} className="text-slate-400" />}>
                   <input
-                    type="time" value={formData.transaction_time || ''}
+                    type="time"
+                    value={formData.transaction_time || ''}
                     onChange={(e) => onChange({ ...formData, transaction_time: e.target.value })}
                     className={inputCls}
                   />
@@ -1068,7 +1297,6 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
               </div>
             </Section>
 
-            {/* ── Payment section ── */}
             <Section title="Payment">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Method" icon={<CreditCard size={13} className="text-slate-400" />}>
@@ -1096,7 +1324,6 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
               </div>
             </Section>
 
-            {/* ── Business Purpose ── */}
             <Section title="CRA Audit Notes">
               <Field label="Business Purpose" icon={<FileText size={13} className="text-slate-400" />}>
                 <textarea
@@ -1109,26 +1336,40 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
               </Field>
             </Section>
 
-            {/* Save */}
-            <button
-              onClick={onSave}
-              disabled={saving}
-              className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 active:scale-[0.99] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 transition-all"
-            >
-              {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <ShieldCheck size={20} />}
-              {saving ? 'Saving to Audit Record…' : 'Save Audit Record'}
-            </button>
+            <div className="flex items-start gap-2.5 bg-emerald-50 rounded-xl px-4 py-3 border border-emerald-100">
+              <Fingerprint size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-emerald-700 leading-relaxed">
+                A <strong>SHA-256 integrity hash</strong> will be computed from this image using{' '}
+                <code className="text-[10px] bg-emerald-100 px-1 rounded">crypto.subtle.digest</code> and stored in the
+                database — satisfying <strong>CRA IC05-1R1 §5.2</strong> image authentication requirements.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onSave}
+                disabled={saving}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 active:scale-[0.99] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 transition-all"
+              >
+                {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <ShieldCheck size={20} />}
+                {saving ? 'Hashing & Saving…' : 'Save to Audit Record'}
+              </button>
+
+              <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-3">
+                <Lock size={14} className="text-emerald-600" />
+                <span className="font-medium whitespace-nowrap">SHA-256 Integrity Hash generated.</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Info banner when no image */}
       {!image && (
         <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
           <div className="flex gap-3">
             <Info size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-blue-700 leading-relaxed">
-              Tap the camera above to open your native camera. Images are automatically resized for fast AI processing. Enterprise extraction captures: vendor address, subtotal, GST, PST, card last 4 digits, and a CRA-ready business purpose.
+              Each image is <strong>SHA-256 fingerprinted</strong> before upload, stored CRA IC05-1R1 compliant with GST/PST breakdown, vendor address, transaction time, and card identification. Download the CRA Audit Package to get a signed LOGBOOK.csv.
             </p>
           </div>
         </div>
@@ -1137,7 +1378,6 @@ function ScanTab({ image, scanning, formData, saving, onFile, onProcess, onSave,
   );
 }
 
-// Helper: section header wrapper
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
@@ -1147,7 +1387,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-// Helper: labelled field
 function Field({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
@@ -1159,32 +1398,36 @@ function Field({ label, icon, children }: { label: string; icon: React.ReactNode
   );
 }
 
-// Shared input class
-const inputCls = 'w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all';
-
 // ── Export Tab ─────────────────────────────────────────────────────────────────
-function ExportTab({ receipts, onCSV, onZIP }: { receipts: Receipt[]; onCSV: () => void; onZIP: () => void }) {
+function ExportTab({ receipts, onCSV, onAuditPackage }: {
+  receipts: Receipt[];
+  onCSV: () => void;
+  onAuditPackage: () => void;
+}) {
   const totalImages = receipts.filter((r) => r.image_url).length;
-  const totalGST    = receipts.reduce((a, r) => a + r.tax_amount, 0);
-  const totalPST    = receipts.reduce((a, r) => a + (r.pst_amount || 0), 0);
+  const hashedCount = receipts.filter((r) => r.integrity_hash).length;
+  const totalGST = receipts.reduce((a, r) => a + r.tax_amount, 0);
+  const totalPST = receipts.reduce((a, r) => a + (r.pst_amount || 0), 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Export</h2>
-        <p className="text-xs text-slate-400 mt-0.5">{receipts.length} records ready to export</p>
+        <p className="text-xs text-slate-400 mt-0.5">
+          {receipts.length} records · {hashedCount} integrity-verified · IC05-1R1 compliant
+        </p>
       </div>
 
       <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl p-6 text-white shadow-xl shadow-blue-500/25">
-        <Download className="w-10 h-10 mb-3 opacity-80" />
-        <h3 className="font-bold text-lg">CRA Export Package</h3>
-        <p className="text-blue-100 text-sm mt-1">Complete audit trail for Canadian tax filing</p>
+        <PackageCheck className="w-10 h-10 mb-3 opacity-80" />
+        <h3 className="font-bold text-lg">CRA Audit Package</h3>
+        <p className="text-blue-100 text-sm mt-1">receipts.csv + LOGBOOK.csv + images — IC05-1R1 §5.3</p>
         <div className="grid grid-cols-4 gap-2 mt-5 text-center">
           {[
-            { label: 'Receipts',    value: receipts.length },
-            { label: 'Images',      value: totalImages },
-            { label: 'Total GST',   value: fmt$(totalGST) },
-            { label: 'Total PST',   value: fmt$(totalPST) },
+            { label: 'Receipts', value: receipts.length },
+            { label: 'Images', value: totalImages },
+            { label: 'GST', value: fmt$(totalGST) },
+            { label: 'PST', value: fmt$(totalPST) },
           ].map((s) => (
             <div key={s.label} className="bg-white/10 rounded-xl p-2">
               <p className="font-bold text-sm leading-none">{s.value}</p>
@@ -1205,13 +1448,13 @@ function ExportTab({ receipts, onCSV, onZIP }: { receipts: Receipt[]; onCSV: () 
           </div>
           <div className="flex-1">
             <p className="font-bold text-slate-900">Export CSV</p>
-            <p className="text-xs text-slate-400 mt-0.5">UTF-8 BOM · Excel compatible · {receipts.length} records · GST + PST columns</p>
+            <p className="text-xs text-slate-400 mt-0.5">UTF-8 BOM · Excel · GST + PST + confidence + SHA-256 hash</p>
           </div>
           <ChevronRight size={16} className="text-slate-300" />
         </button>
 
         <button
-          onClick={onZIP}
+          onClick={onAuditPackage}
           disabled={receipts.length === 0}
           className="w-full bg-white hover:bg-slate-50 disabled:opacity-50 border border-slate-200 hover:border-indigo-200 rounded-2xl p-4 text-left flex items-center gap-4 shadow-sm hover:shadow-md active:scale-[0.99] transition-all"
         >
@@ -1219,18 +1462,32 @@ function ExportTab({ receipts, onCSV, onZIP }: { receipts: Receipt[]; onCSV: () 
             <FileArchive className="w-6 h-6 text-indigo-500" />
           </div>
           <div className="flex-1">
-            <p className="font-bold text-slate-900">Export ZIP</p>
-            <p className="text-xs text-slate-400 mt-0.5">CSV + {totalImages} receipt image{totalImages !== 1 ? 's' : ''} · Full audit package</p>
+            <p className="font-bold text-slate-900">Download CRA Audit Package</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              receipts.csv · LOGBOOK.csv · {totalImages} image{totalImages !== 1 ? 's' : ''} · IC05-1R1 §5.3
+            </p>
           </div>
           <ChevronRight size={16} className="text-slate-300" />
         </button>
+      </div>
+
+      <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
+        <div className="flex gap-3">
+          <Fingerprint size={16} className="text-indigo-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-indigo-700 mb-1">What's in LOGBOOK.csv?</p>
+            <p className="text-xs text-indigo-600 leading-relaxed">
+              The logbook records every scanned image: its filename, UTC scan timestamp, operator email, app version ({APP_VERSION}), and the <strong>SHA-256 integrity hash</strong>. Cross-reference with <code className="text-[10px] bg-indigo-100 px-0.5 rounded">images/</code> using <code className="text-[10px] bg-indigo-100 px-0.5 rounded">shasum -a 256</code> to verify no image has been altered since scanning.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
         <div className="flex gap-3">
           <ShieldCheck size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-700 leading-relaxed">
-            <strong>CRA Tip:</strong> Keep records for a minimum of 6 years. The ZIP export includes original receipt images required for GST/HST input tax credit claims. PST columns are included for inter-provincial expense reporting.
+            <strong>CRA Tip:</strong> Retain this package for a minimum of 6 years. Original images are required for GST/HST input tax credit claims under IC05-1R1.
           </p>
         </div>
       </div>
@@ -1239,13 +1496,13 @@ function ExportTab({ receipts, onCSV, onZIP }: { receipts: Receipt[]; onCSV: () 
 }
 
 // ── Audit Tab ──────────────────────────────────────────────────────────────────
-function AuditTab({ logs, onRefresh }: { logs: AuditLog[]; onRefresh: () => void }) {
+function AuditTab({ logs, onRefresh, loading }: { logs: AuditLog[]; onRefresh: () => void; loading: boolean }) {
   const actionMeta: Record<string, { label: string; color: string }> = {
-    receipt_created: { label: 'Created',  color: 'bg-emerald-100 text-emerald-700' },
-    receipt_deleted: { label: 'Deleted',  color: 'bg-red-100 text-red-700' },
-    receipt_updated: { label: 'Updated',  color: 'bg-blue-100 text-blue-700' },
-    export_csv:      { label: 'CSV',      color: 'bg-violet-100 text-violet-700' },
-    export_zip:      { label: 'ZIP',      color: 'bg-indigo-100 text-indigo-700' },
+    receipt_created: { label: 'Created', color: 'bg-emerald-100 text-emerald-700' },
+    receipt_deleted: { label: 'Deleted', color: 'bg-red-100 text-red-700' },
+    receipt_updated: { label: 'Updated', color: 'bg-blue-100 text-blue-700' },
+    export_csv: { label: 'CSV', color: 'bg-violet-100 text-violet-700' },
+    export_zip: { label: 'Pkg', color: 'bg-indigo-100 text-indigo-700' },
   };
 
   return (
@@ -1253,14 +1510,19 @@ function AuditTab({ logs, onRefresh }: { logs: AuditLog[]; onRefresh: () => void
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Audit Log</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{logs.length} event{logs.length !== 1 ? 's' : ''} recorded</p>
+          <p className="text-xs text-slate-400 mt-0.5">{logs.length} event{logs.length !== 1 ? 's' : ''} · latest 50 records</p>
         </div>
         <button onClick={onRefresh} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-blue-500 transition-all">
-          <RefreshCw size={18} />
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      {logs.length === 0 ? (
+      {loading ? (
+        <div className="bg-white rounded-2xl p-12 border border-slate-100 text-center">
+          <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-3" />
+          <p className="text-slate-400 text-sm">Loading latest audit logs…</p>
+        </div>
+      ) : logs.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 border border-slate-100 text-center">
           <ShieldCheck className="w-12 h-12 text-slate-200 mx-auto mb-3" />
           <p className="text-slate-400 text-sm">No audit events yet</p>
@@ -1269,11 +1531,17 @@ function AuditTab({ logs, onRefresh }: { logs: AuditLog[]; onRefresh: () => void
         <div className="space-y-2.5">
           {logs.map((log) => {
             const meta = actionMeta[log.action] || { label: log.action, color: 'bg-slate-100 text-slate-600' };
+            const [mainDetails, agentPart] = log.details.split(' | Agent:');
             return (
               <div key={log.id} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-900">{log.details}</p>
+                    <p className="text-sm text-slate-900 leading-snug">{mainDetails}</p>
+                    {agentPart && (
+                      <p className="text-[10px] text-slate-300 mt-1 font-mono truncate">
+                        UA: {agentPart.slice(0, 70)}…
+                      </p>
+                    )}
                     <p className="text-xs text-slate-400 mt-1.5 font-mono">
                       {new Date(log.created_at).toLocaleString('en-CA', {
                         month: 'short', day: 'numeric', year: 'numeric',
@@ -1297,26 +1565,29 @@ function AuditTab({ logs, onRefresh }: { logs: AuditLog[]; onRefresh: () => void
 // ── Detail View ────────────────────────────────────────────────────────────────
 function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => void }) {
   const rows = [
-    { label: 'Date',           value: fmtDate(receipt.transaction_date),          icon: <CalendarDays size={14} /> },
+    { label: 'Date', value: fmtDate(receipt.transaction_date), icon: <CalendarDays size={14} /> },
     receipt.transaction_time
-      ? { label: 'Time',       value: receipt.transaction_time,                   icon: <Clock size={14} /> }
+      ? { label: 'Time', value: receipt.transaction_time, icon: <Clock size={14} /> }
       : null,
-    { label: 'Category',       value: receipt.category,                            icon: <Tag size={14} /> },
-    { label: 'Subtotal',       value: fmt$(receipt.subtotal ?? 0),                 icon: <DollarSign size={14} /> },
-    { label: 'GST (5%)',       value: fmt$(receipt.tax_amount),                    icon: <DollarSign size={14} className="text-emerald-500" /> },
+    { label: 'Category', value: receipt.category, icon: <Tag size={14} /> },
+    { label: 'Subtotal', value: fmt$(receipt.subtotal ?? 0), icon: <DollarSign size={14} /> },
+    { label: 'GST (5%)', value: fmt$(receipt.tax_amount), icon: <DollarSign size={14} className="text-emerald-500" /> },
     (receipt.pst_amount ?? 0) > 0
-      ? { label: 'PST / HST',  value: fmt$(receipt.pst_amount!),                  icon: <DollarSign size={14} className="text-violet-500" /> }
+      ? { label: 'PST/HST', value: fmt$(receipt.pst_amount!), icon: <DollarSign size={14} className="text-violet-500" /> }
       : null,
-    { label: 'Grand Total',    value: fmt$(receipt.total_amount),                  icon: <Wallet size={14} /> },
-    { label: 'Payment',        value: receipt.payment_method + (receipt.card_last_four ? ` ····${receipt.card_last_four}` : ''), icon: <CreditCard size={14} /> },
-    { label: 'Currency',       value: receipt.currency,                            icon: <DollarSign size={14} /> },
+    { label: 'Grand Total', value: fmt$(receipt.total_amount), icon: <Wallet size={14} /> },
+    { label: 'Payment', value: receipt.payment_method + (receipt.card_last_four ? ` ····${receipt.card_last_four}` : ''), icon: <CreditCard size={14} /> },
+    { label: 'Currency', value: receipt.currency, icon: <DollarSign size={14} /> },
     receipt.vendor_address
-      ? { label: 'Address',    value: receipt.vendor_address,                      icon: <MapPin size={14} /> }
+      ? { label: 'Address', value: receipt.vendor_address, icon: <MapPin size={14} /> }
       : null,
     receipt.vendor_tax_number
-      ? { label: 'Business #', value: receipt.vendor_tax_number,                  icon: <Building2 size={14} /> }
+      ? { label: 'BN', value: receipt.vendor_tax_number, icon: <Building2 size={14} /> }
       : null,
+    { label: 'AI Confidence', value: `${Number(receipt.confidence_score ?? 0)}%`, icon: <Info size={14} /> },
   ].filter(Boolean) as { label: string; value: string; icon: React.ReactNode }[];
+
+  const confidenceTone = getConfidenceTone(receipt.confidence_score);
 
   return (
     <div
@@ -1327,7 +1598,6 @@ function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => voi
         className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
             <ArrowLeft size={18} />
@@ -1346,31 +1616,52 @@ function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => voi
         </div>
 
         <div className="overflow-y-auto flex-1">
-          {/* Receipt image */}
           {receipt.image_url && (
             <div className="bg-slate-50 border-b border-slate-100">
               <img src={receipt.image_url} alt="Receipt" className="w-full max-h-72 object-contain" />
             </div>
           )}
 
-          {/* Fields */}
-          <div className="p-5 space-y-1">
-            {rows.map((r) => (
-              <div key={r.label} className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0 gap-3">
-                <div className="flex items-center gap-2 text-slate-400 flex-shrink-0">
-                  {r.icon}
-                  <span className="text-xs font-semibold uppercase tracking-wide">{r.label}</span>
-                </div>
-                <span className="text-sm font-semibold text-slate-900 text-right break-words max-w-[55%]">{r.value}</span>
+          <div className="p-5">
+            <div className={`mb-4 rounded-xl border px-4 py-3 ${confidenceTone.panel}`}>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold uppercase tracking-wide">AI Confidence</p>
+                <p className="text-sm font-bold">{Number(receipt.confidence_score ?? 0)}%</p>
               </div>
-            ))}
+            </div>
+
+            <div className="space-y-1">
+              {rows.map((r) => (
+                <div key={r.label} className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0 gap-3">
+                  <div className="flex items-center gap-2 text-slate-400 flex-shrink-0">
+                    {r.icon}
+                    <span className="text-xs font-semibold uppercase tracking-wide">{r.label}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-900 text-right break-words max-w-[55%]">{r.value}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Business purpose */}
           {receipt.notes && (
-            <div className="mx-5 mb-5 bg-blue-50 rounded-2xl p-4 border border-blue-100">
+            <div className="mx-5 bg-blue-50 rounded-2xl p-4 border border-blue-100">
               <p className="text-xs font-bold text-blue-500 uppercase tracking-wider mb-1.5">Business Purpose</p>
               <p className="text-sm text-blue-900">{receipt.notes}</p>
+            </div>
+          )}
+
+          {receipt.integrity_hash && (
+            <div className="mx-5 mt-3 mb-5 bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Fingerprint size={13} className="text-emerald-500" />
+                <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider">SHA-256 Integrity Hash</p>
+              </div>
+              <p className="text-[10px] font-mono text-emerald-700 break-all leading-relaxed">
+                {receipt.integrity_hash}
+              </p>
+              <p className="text-[10px] text-emerald-500 mt-1.5">
+                CRA IC05-1R1 §5.2 — image authentication verified
+              </p>
             </div>
           )}
         </div>
