@@ -1,82 +1,94 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import { supabase } from '@/lib/supabase';
 import { scanReceipt } from './actions/scan-receipt';
+import type { ScannedReceiptData } from './actions/scan-receipt';
 import {
-  LayoutDashboard,
-  Receipt,
-  Camera,
-  Download,
-  ShieldCheck,
-  DollarSign,
-  Hash,
-  TrendingUp,
-  ChevronRight,
+  AlertCircle,
   ArrowLeft,
-  Loader2,
-  RefreshCw,
-  LogOut,
-  FileArchive,
-  FileText,
-  ScanLine,
   Building2,
   CalendarDays,
-  Tag,
-  CreditCard,
-  AlertCircle,
+  Camera,
   CheckCircle2,
-  Info,
-  Wallet,
-  Receipt as ReceiptIcon,
-  MapPin,
-  Clock,
   ChevronDown,
-  UserCircle2,
-  Layers,
-  Thermometer,
+  ChevronRight,
+  Clock,
+  CreditCard,
+  DollarSign,
+  Download,
+  FileArchive,
+  FileText,
   Fingerprint,
-  PackageCheck,
+  Hash,
+  Info,
+  Layers,
+  LayoutDashboard,
+  Loader2,
   Lock,
+  LogOut,
+  MapPin,
+  PackageCheck,
+  Receipt,
+  RefreshCw,
+  ScanLine,
+  Search,
+  ShieldCheck,
+  Tag,
+  Thermometer,
+  TrendingUp,
+  Truck,
+  UserCircle2,
+  Wallet,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  CartesianGrid,
   LineChart,
   Line,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
 } from 'recharts';
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1.0-IC05R1';
+const APP_VERSION = '3.0.0-CA-P1';
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-interface Receipt {
+type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit';
+type Role = 'Owner' | 'Employee';
+
+interface ReceiptRow {
   id: string;
   user_id: string;
+  business_unit_id?: string | null;
   vendor_name: string;
-  vendor_address?: string;
+  vendor_address?: string | null;
+  vendor_tax_number?: string | null;
   total_amount: number;
-  subtotal?: number;
+  subtotal?: number | null;
   tax_amount: number;
-  pst_amount?: number;
-  vendor_tax_number: string;
+  pst_amount?: number | null;
   transaction_date: string;
-  transaction_time?: string;
+  transaction_time?: string | null;
+  payment_method: string;
+  card_last_four?: string | null;
   category: string;
   notes: string;
-  payment_method: string;
-  card_last_four?: string;
   currency: string;
-  image_url?: string;
-  integrity_hash?: string;
-  created_at?: string;
-  confidence_score?: number;
+  image_url?: string | null;
+  integrity_hash?: string | null;
+  confidence_score?: number | null;
+  cra_readiness_score?: number | null;
+  thermal_warning?: boolean | null;
+  capture_source?: string | null;
+  device_info?: string | null;
+  usage_type?: 'business' | 'personal' | 'mixed' | null;
+  business_use_percent?: number | null;
+  job_code?: string | null;
+  vehicle_id?: string | null;
+  created_at?: string | null;
 }
 
 interface AuditLog {
@@ -87,7 +99,10 @@ interface AuditLog {
   created_at: string;
 }
 
-type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit';
+interface BusinessUnit {
+  id: string;
+  name: string;
+}
 
 const CATEGORIES = [
   'Office Supplies',
@@ -101,133 +116,286 @@ const CATEGORIES = [
   'General Expense',
 ] as const;
 
-const PAYMENT_METHODS = ['Visa', 'Mastercard', 'Amex', 'Debit', 'Cash', 'E-Transfer', 'Cheque'] as const;
+const PAYMENT_METHODS = ['Visa', 'Mastercard', 'Amex', 'Debit', 'Cash', 'E-Transfer', 'Cheque', 'Unknown'] as const;
+const USAGE_TYPES = ['business', 'personal', 'mixed'] as const;
 
-// ── Utilities ──────────────────────────────────────────────────────────────────
+const CATEGORY_COLORS: Record<string, string> = {
+  'Office Supplies': '#3b82f6',
+  'Meals & Entertainment': '#f59e0b',
+  Travel: '#8b5cf6',
+  Fuel: '#ef4444',
+  'Professional Fees': '#10b981',
+  Supplies: '#06b6d4',
+  'Software & Subscriptions': '#ec4899',
+  Utilities: '#f97316',
+  'General Expense': '#6b7280',
+};
+
+type ScanForm = {
+  vendor_name: string;
+  vendor_address: string;
+  vendor_tax_number: string;
+  total_amount: number;
+  subtotal: number;
+  tax_amount: number;
+  pst_amount: number;
+  transaction_date: string;
+  transaction_time: string;
+  payment_method: string;
+  card_last_four: string;
+  category: string;
+  notes: string;
+  currency: string;
+  confidence_score: number;
+  cra_readiness_score: number;
+  thermal_warning: boolean;
+  document_type: 'receipt' | 'invoice' | 'statement' | 'unknown';
+  duplicate_warning: boolean;
+  math_mismatch_warning: boolean;
+  missing_bn_warning: boolean;
+  capture_source: 'camera' | 'upload';
+  device_info: string;
+  usage_type: 'business' | 'personal' | 'mixed';
+  business_use_percent: number;
+  job_code: string;
+  vehicle_id: string;
+  business_unit_id: string;
+};
+
 const todayISO = () => new Date().toISOString().split('T')[0];
 
-const fmt$ = (n: number) =>
-  new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n ?? 0);
+const BLANK_FORM: ScanForm = {
+  vendor_name: '',
+  vendor_address: '',
+  vendor_tax_number: '',
+  total_amount: 0,
+  subtotal: 0,
+  tax_amount: 0,
+  pst_amount: 0,
+  transaction_date: todayISO(),
+  transaction_time: '',
+  payment_method: 'Unknown',
+  card_last_four: '',
+  category: 'General Expense',
+  notes: '',
+  currency: 'CAD',
+  confidence_score: 0,
+  cra_readiness_score: 0,
+  thermal_warning: false,
+  document_type: 'unknown',
+  duplicate_warning: false,
+  math_mismatch_warning: false,
+  missing_bn_warning: false,
+  capture_source: 'camera',
+  device_info: '',
+  usage_type: 'business',
+  business_use_percent: 100,
+  job_code: '',
+  vehicle_id: '',
+  business_unit_id: '',
+};
 
-const fmtDate = (s?: string) => {
+const inputCls =
+  'w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all bg-white';
+
+const warningInputCls =
+  'w-full rounded-xl border border-yellow-400 bg-yellow-50/70 px-3 py-2.5 text-sm text-slate-900 placeholder:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-100 focus:border-yellow-500 transition-all';
+
+const fmt$ = (n: number) =>
+  new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+  }).format(Number.isFinite(n) ? n : 0);
+
+const fmtDate = (s?: string | null) => {
   if (!s) return '—';
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-CA', {
-    year: 'numeric', month: 'short', day: 'numeric',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 };
 
 const fmtMonth = (s: string) => {
   const [y, m] = s.split('-');
-  return new Date(Number(y), Number(m) - 1).toLocaleDateString('en-CA', { month: 'short', year: '2-digit' });
+  return new Date(Number(y), Number(m) - 1).toLocaleDateString('en-CA', {
+    month: 'short',
+    year: '2-digit',
+  });
 };
 
-const resizeImage = (base64: string): Promise<string> =>
-  new Promise((resolve) => {
+const escapeCSV = (v: unknown) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
+
+async function resizeImageTo2000(base64: string): Promise<string> {
+  return await new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       let { width, height } = img;
-      if (width > 2000) { height = (height * 2000) / width; width = 2000; }
+      const longest = Math.max(width, height);
+
+      if (longest > 2000) {
+        const scale = 2000 / longest;
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+
       const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.7));
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
     };
     img.src = base64;
   });
+}
 
-const base64ToBlob = (b64: string): Blob => {
+function base64ToBlob(b64: string): Blob {
   const raw = b64.replace(/^data:image\/\w+;base64,/, '');
   const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
   return new Blob([bytes], { type: 'image/jpeg' });
-};
+}
 
-const escapeCSV = (v: unknown) =>
-  v == null ? '' : `"${String(v).replace(/"/g, '""')}"`;
-
-const getConfidenceTone = (score?: number) => {
-  const s = Number(score ?? 0);
-  if (s >= 85) {
-    return {
-      label: 'High',
-      pill: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      icon: 'text-emerald-500',
-      panel: 'bg-emerald-50 border-emerald-100 text-emerald-800',
-    };
-  }
-  if (s >= 60) {
-    return {
-      label: 'Medium',
-      pill: 'bg-amber-50 text-amber-700 border-amber-200',
-      icon: 'text-amber-500',
-      panel: 'bg-amber-50 border-amber-100 text-amber-800',
-    };
-  }
-  return {
-    label: 'Low',
-    pill: 'bg-red-50 text-red-700 border-red-200',
-    icon: 'text-red-500',
-    panel: 'bg-red-50 border-red-100 text-red-800',
-  };
-};
-
-// ── A. SHA-256 Image Fingerprinting ───────────────────────────────────────────
 async function computeSHA256(base64: string): Promise<string> {
   const raw = base64.replace(/^data:image\/\w+;base64,/, '');
   const binaryStr = atob(raw);
   const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+
   const hashBuffer = await crypto.subtle.digest('SHA-256', bytes.buffer);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-// ── CSV builders ───────────────────────────────────────────────────────────────
-const buildCSV = (receipts: Receipt[]): string => {
+function getConfidenceTone(score?: number | null) {
+  const s = Number(score ?? 0);
+  if (s >= 85) {
+    return {
+      label: 'High',
+      pill: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      panel: 'bg-emerald-50 border-emerald-100 text-emerald-800',
+      icon: 'text-emerald-500',
+    };
+  }
+  if (s >= 60) {
+    return {
+      label: 'Medium',
+      pill: 'bg-amber-50 text-amber-700 border-amber-200',
+      panel: 'bg-amber-50 border-amber-100 text-amber-800',
+      icon: 'text-amber-500',
+    };
+  }
+  return {
+    label: 'Low',
+    pill: 'bg-red-50 text-red-700 border-red-200',
+    panel: 'bg-red-50 border-red-100 text-red-800',
+    icon: 'text-red-500',
+  };
+}
+
+function getReadinessTone(score?: number | null) {
+  const s = Number(score ?? 0);
+  if (s >= 85) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (s >= 60) return 'bg-amber-50 text-amber-700 border-amber-200';
+  return 'bg-red-50 text-red-700 border-red-200';
+}
+
+function buildReceiptsCSV(receipts: ReceiptRow[]): string {
   const BOM = '\uFEFF';
   const headers = [
-    'Date', 'Time', 'Vendor', 'Vendor Address', 'Category',
-    'Payment Method', 'Card Last 4', 'Currency',
-    'Subtotal', 'GST', 'PST', 'Total',
-    'Business Number', 'Business Purpose', 'Confidence Score', 'SHA-256 Hash', 'Image URL',
-  ].map(escapeCSV).join(',');
-  const rows = receipts.map((r) =>
-    [
-      fmtDate(r.transaction_date),
-      r.transaction_time || '',
-      r.vendor_name,
-      r.vendor_address || '',
-      r.category,
-      r.payment_method,
-      r.card_last_four || '',
-      r.currency,
-      (r.subtotal ?? 0).toFixed(2),
-      r.tax_amount.toFixed(2),
-      (r.pst_amount ?? 0).toFixed(2),
-      r.total_amount.toFixed(2),
-      r.vendor_tax_number,
-      r.notes,
-      String(r.confidence_score ?? 0),
-      r.integrity_hash || '',
-      r.image_url || '',
-    ].map(escapeCSV).join(',')
-  ).join('\n');
-  return BOM + headers + '\n' + rows;
-};
+    'Receipt ID',
+    'Business Unit ID',
+    'Vendor',
+    'Vendor Address',
+    'Business Number',
+    'Date',
+    'Time',
+    'Category',
+    'Usage Type',
+    'Business Use %',
+    'Job Code',
+    'Vehicle ID',
+    'Payment Method',
+    'Card Last 4',
+    'Currency',
+    'Subtotal',
+    'GST',
+    'PST',
+    'Total',
+    'CRA Readiness Score',
+    'AI Confidence Score',
+    'Thermal Warning',
+    'Capture Source',
+    'Device Info',
+    'Notes',
+    'SHA-256 Hash',
+    'Image URL',
+    'Created At',
+  ]
+    .map(escapeCSV)
+    .join(',');
 
-// ── C. LOGBOOK.csv ─────────────────────────────────────────────────────────────
-const buildLogbook = (receipts: Receipt[], operatorEmail: string): string => {
+  const rows = receipts
+    .map((r) =>
+      [
+        r.id,
+        r.business_unit_id ?? '',
+        r.vendor_name,
+        r.vendor_address ?? '',
+        r.vendor_tax_number ?? '',
+        r.transaction_date,
+        r.transaction_time ?? '',
+        r.category,
+        r.usage_type ?? '',
+        r.business_use_percent ?? '',
+        r.job_code ?? '',
+        r.vehicle_id ?? '',
+        r.payment_method,
+        r.card_last_four ?? '',
+        r.currency,
+        Number(r.subtotal ?? 0).toFixed(2),
+        Number(r.tax_amount ?? 0).toFixed(2),
+        Number(r.pst_amount ?? 0).toFixed(2),
+        Number(r.total_amount ?? 0).toFixed(2),
+        String(r.cra_readiness_score ?? 0),
+        String(r.confidence_score ?? 0),
+        r.thermal_warning ? 'YES' : 'NO',
+        r.capture_source ?? '',
+        r.device_info ?? '',
+        r.notes,
+        r.integrity_hash ?? '',
+        r.image_url ?? '',
+        r.created_at ?? '',
+      ]
+        .map(escapeCSV)
+        .join(','),
+    )
+    .join('\n');
+
+  return `${BOM}${headers}\n${rows}`;
+}
+
+function buildLogbookCSV(receipts: ReceiptRow[], operatorEmail: string): string {
   const BOM = '\uFEFF';
   const headers = [
     'Image Filename',
     'Scan Date (UTC)',
     'Vendor',
-    'Operator (Email)',
+    'Operator Email',
     'App Version',
     'SHA-256 Integrity Hash',
+    'Capture Source',
+    'CRA Readiness Score',
     'CRA Standard',
-  ].map(escapeCSV).join(',');
+  ]
+    .map(escapeCSV)
+    .join(',');
 
   const rows = receipts
     .filter((r) => r.image_url || r.integrity_hash)
@@ -241,53 +409,20 @@ const buildLogbook = (receipts: Receipt[], operatorEmail: string): string => {
         r.vendor_name,
         operatorEmail,
         APP_VERSION,
-        r.integrity_hash || 'N/A',
+        r.integrity_hash ?? '',
+        r.capture_source ?? '',
+        r.cra_readiness_score ?? 0,
         'IC05-1R1',
-      ].map(escapeCSV).join(',');
+      ]
+        .map(escapeCSV)
+        .join(',');
     })
     .join('\n');
 
-  return BOM + headers + '\n' + rows;
-};
+  return `${BOM}${headers}\n${rows}`;
+}
 
-const CATEGORY_COLORS: Record<string, string> = {
-  'Office Supplies': '#3b82f6',
-  'Meals & Entertainment': '#f59e0b',
-  'Travel': '#8b5cf6',
-  'Fuel': '#ef4444',
-  'Professional Fees': '#10b981',
-  'Supplies': '#06b6d4',
-  'Software & Subscriptions': '#ec4899',
-  'Utilities': '#f97316',
-  'General Expense': '#6b7280',
-};
-
-const BLANK_FORM = {
-  vendor_name: '',
-  vendor_address: '',
-  total_amount: 0,
-  subtotal: 0,
-  tax_amount: 0,
-  pst_amount: 0,
-  vendor_tax_number: '',
-  transaction_date: todayISO(),
-  transaction_time: '',
-  category: 'General Expense',
-  notes: '',
-  payment_method: 'Visa',
-  card_last_four: '',
-  currency: 'CAD',
-  confidence_score: 0,
-};
-
-const inputCls =
-  'w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all';
-
-const warningInputCls =
-  'w-full border border-yellow-400 rounded-xl px-3 py-2.5 text-sm bg-yellow-50/50 focus:outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-100 transition-all';
-
-// ── Root ───────────────────────────────────────────────────────────────────────
-export default function ReceiptPro() {
+export default function ReceiptProPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -297,24 +432,29 @@ export default function ReceiptPro() {
       setUser(session?.user ?? null);
       setAuthLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_: any, session: any) => {
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_: any, session: any) => {
       setUser(session?.user ?? null);
+      setAuthLoading(false);
     });
+
     return () => subscription.unsubscribe();
   }, []);
 
   if (authLoading) return <FullPageLoader />;
   if (!user) return <AuthScreen />;
+
   return <AppShell user={user} fileInputRef={fileInputRef} />;
 }
 
-// ── Full-page loader ───────────────────────────────────────────────────────────
 function FullPageLoader() {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-14 h-14 bg-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
-          <ReceiptIcon className="w-8 h-8 text-white" />
+        <div className="w-14 h-14 rounded-2xl bg-blue-500 flex items-center justify-center shadow-lg">
+          <Receipt className="w-8 h-8 text-white" />
         </div>
         <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
       </div>
@@ -322,51 +462,61 @@ function FullPageLoader() {
   );
 }
 
-// ── Auth Screen ────────────────────────────────────────────────────────────────
 function AuthScreen() {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [consentChecked, setConsentChecked] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
-  const [tosChecked, setTosChecked] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', msg: string) => {
     setToast({ type, msg });
-    setTimeout(() => setToast(null), 4500);
+    window.setTimeout(() => setToast(null), 4200);
   };
 
-  const handleSubmit = async () => {
-    if (!email || !password) return showToast('error', 'Please fill in all fields.');
-    if (!tosChecked) return showToast('error', 'You must agree to the Terms of Use to continue.');
+  const submit = async () => {
+    if (!email || !password) return showToast('error', 'Please enter your email and password.');
+    if (!consentChecked) return showToast('error', 'You must accept the terms before continuing.');
+
     setLoading(true);
-    const fn = mode === 'signin'
-      ? () => supabase.auth.signInWithPassword({ email, password })
-      : () => supabase.auth.signUp({ email, password });
+
+    const fn =
+      mode === 'signin'
+        ? () => supabase.auth.signInWithPassword({ email, password })
+        : () => supabase.auth.signUp({ email, password });
+
     const { error } = await fn();
-    if (error) showToast('error', error.message);
-    else if (mode === 'signup') showToast('success', 'Check your email to confirm your account.');
+
+    if (error) {
+      showToast('error', error.message);
+    } else if (mode === 'signup') {
+      showToast('success', 'Account created. Check your email to confirm your account.');
+    }
+
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 flex items-center justify-center p-4">
       {toast && (
-        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium max-w-sm w-full ${
-          toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'
-        }`}>
+        <div
+          className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium max-w-sm w-[calc(100%-2rem)] ${
+            toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'
+          }`}
+        >
           {toast.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-          {toast.msg}
+          <span>{toast.msg}</span>
         </div>
       )}
 
       <div className="w-full max-w-sm">
         <div className="text-center mb-10">
-          <div className="w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/40 mx-auto mb-5">
-            <ReceiptIcon className="w-10 h-10 text-white" />
+          <div className="w-20 h-20 bg-blue-500 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/30 mx-auto mb-5">
+            <Receipt className="w-10 h-10 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Receipt Pro</h1>
-          <p className="text-blue-300 text-sm mt-1 font-medium uppercase tracking-widest">CRA IC05-1R1 Compliant</p>
+          <p className="text-blue-300 text-sm mt-1 font-medium uppercase tracking-widest">Canadian Receipt Intelligence</p>
         </div>
 
         <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-2xl">
@@ -376,57 +526,59 @@ function AuthScreen() {
 
           <div className="space-y-4">
             <div>
-              <label className="text-blue-200 text-xs font-semibold uppercase tracking-wider mb-2 block">Email</label>
+              <label className="block mb-2 text-xs font-semibold uppercase tracking-wider text-blue-200">Email</label>
               <input
                 type="email"
+                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-400 focus:bg-white/15 transition-all text-sm"
+                placeholder="you@company.ca"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder="you@company.ca"
-                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-400 focus:bg-white/15 transition-all text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-blue-200 text-xs font-semibold uppercase tracking-wider mb-2 block">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder="••••••••"
-                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-400 focus:bg-white/15 transition-all text-sm"
+                onKeyDown={(e) => e.key === 'Enter' && submit()}
               />
             </div>
 
-            <div
-              onClick={() => setTosChecked(!tosChecked)}
-              className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none ${
-                tosChecked ? 'bg-blue-500/20 border-blue-400/50' : 'bg-white/5 border-white/15 hover:border-white/30'
-              }`}
-            >
-              <div className={`w-5 h-5 rounded-md flex-shrink-0 mt-0.5 flex items-center justify-center border-2 transition-all ${
-                tosChecked ? 'bg-blue-500 border-blue-400' : 'border-white/30'
-              }`}>
-                {tosChecked && <CheckCircle2 size={12} className="text-white" />}
-              </div>
-              <p className="text-xs text-blue-100 leading-relaxed">
-                I agree that <strong className="text-white">Receipt Pro is a record-keeping tool only</strong> and I am solely responsible for the accuracy of data submitted. This app does not constitute tax advice.
-              </p>
+            <div>
+              <label className="block mb-2 text-xs font-semibold uppercase tracking-wider text-blue-200">Password</label>
+              <input
+                type="password"
+                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-400 focus:bg-white/15 transition-all text-sm"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submit()}
+              />
             </div>
 
             <button
-              onClick={handleSubmit}
-              disabled={loading || !tosChecked}
+              type="button"
+              onClick={() => setConsentChecked((v) => !v)}
+              className={`w-full text-left flex items-start gap-3 rounded-xl border p-3.5 transition-all ${
+                consentChecked ? 'bg-blue-500/20 border-blue-400/50' : 'bg-white/5 border-white/15 hover:border-white/30'
+              }`}
+            >
+              <div
+                className={`w-5 h-5 mt-0.5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
+                  consentChecked ? 'bg-blue-500 border-blue-400' : 'border-white/30'
+                }`}
+              >
+                {consentChecked && <CheckCircle2 size={12} className="text-white" />}
+              </div>
+              <p className="text-xs text-blue-100 leading-relaxed">
+                I understand Receipt Pro is a record-keeping and extraction tool. I remain responsible for final review and tax filing accuracy.
+              </p>
+            </button>
+
+            <button
+              onClick={submit}
+              disabled={loading || !consentChecked}
               className="w-full bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-2"
             >
-              {loading
-                ? <Loader2 className="animate-spin w-5 h-5" />
-                : mode === 'signin' ? 'Sign In' : 'Create Account'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : mode === 'signin' ? 'Sign In' : 'Create Account'}
             </button>
           </div>
 
           <button
-            onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+            onClick={() => setMode((m) => (m === 'signin' ? 'signup' : 'signin'))}
             className="w-full text-center text-blue-300 hover:text-white text-sm mt-5 transition-colors"
           >
             {mode === 'signin' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
@@ -437,240 +589,367 @@ function AuthScreen() {
   );
 }
 
-// ── App Shell ──────────────────────────────────────────────────────────────────
-function AppShell({ user, fileInputRef }: {
+function AppShell({
+  user,
+  fileInputRef,
+}: {
   user: any;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [role, setRole] = useState<Role>('Owner');
+  const [roleOpen, setRoleOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [auditLoading, setAuditLoading] = useState(false);
-  const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
-  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
-  const [roleOpen, setRoleOpen] = useState(false);
+
+  const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
+
   const [image, setImage] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [formData, setFormData] = useState({ ...BLANK_FORM });
   const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState<ScanForm>({ ...BLANK_FORM });
+
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRow | null>(null);
+  const [search, setSearch] = useState('');
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', msg: string) => {
     setToast({ type, msg });
-    setTimeout(() => setToast(null), 4500);
+    window.setTimeout(() => setToast(null), 4500);
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadReceipts = useCallback(async () => {
     setLoading(true);
-    try {
-      const { data } = await supabase
-        .from('receipts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-      setReceipts(data || []);
-    } catch {
+
+    const { data, error } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
       showToast('error', 'Failed to load receipts.');
+      setReceipts([]);
+    } else {
+      setReceipts((data ?? []) as ReceiptRow[]);
     }
+
     setLoading(false);
   }, [user.id, showToast]);
 
-  const loadAudit = useCallback(async () => {
+  const loadAuditLogs = useCallback(async () => {
     setAuditLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50);
 
-      if (error) throw error;
-      setAuditLogs(data || []);
-    } catch {
-      setAuditLogs([]);
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
       showToast('error', 'Failed to load audit logs.');
+      setAuditLogs([]);
+    } else {
+      setAuditLogs((data ?? []) as AuditLog[]);
     }
+
     setAuditLoading(false);
   }, [user.id, showToast]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  const loadBusinessUnits = useCallback(async () => {
+    const { data } = await supabase
+      .from('business_units')
+      .select('id,name')
+      .order('name', { ascending: true });
+
+    setBusinessUnits((data ?? []) as BusinessUnit[]);
+  }, []);
 
   useEffect(() => {
-    if (activeTab === 'audit') {
-      loadAudit();
-    }
-  }, [activeTab, loadAudit]);
+    loadReceipts();
+    loadBusinessUnits();
+  }, [loadReceipts, loadBusinessUnits]);
+
+  useEffect(() => {
+    if (activeTab === 'audit') loadAuditLogs();
+  }, [activeTab, loadAuditLogs]);
+
+  const filteredReceipts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return receipts;
+    return receipts.filter((r) => {
+      return [
+        r.vendor_name,
+        r.vendor_address,
+        r.category,
+        r.vendor_tax_number,
+        r.job_code,
+        r.vehicle_id,
+        r.transaction_date,
+      ]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [receipts, search]);
+
+  const stats = useMemo(() => {
+    const total = receipts.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
+    const tax = receipts.reduce((sum, r) => sum + Number(r.tax_amount || 0) + Number(r.pst_amount || 0), 0);
+    const count = receipts.length;
+    const avg = count ? total / count : 0;
+    const missingBn = receipts.filter((r) => !r.vendor_tax_number).length;
+    const needReview = receipts.filter((r) => Number(r.cra_readiness_score ?? 0) < 85).length;
+
+    return { total, tax, count, avg, missingBn, needReview };
+  }, [receipts]);
+
+  const categoryData = useMemo(() => {
+    return Object.entries(
+      receipts.reduce<Record<string, number>>((acc, r) => {
+        acc[r.category] = (acc[r.category] || 0) + Number(r.total_amount || 0);
+        return acc;
+      }, {}),
+    )
+      .map(([name, amount]) => ({ name, amount: Math.round(amount * 100) / 100 }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [receipts]);
+
+  const monthlyData = useMemo(() => {
+    return Object.entries(
+      receipts.reduce<Record<string, number>>((acc, r) => {
+        const month = r.transaction_date?.slice(0, 7);
+        if (month) acc[month] = (acc[month] || 0) + Number(r.total_amount || 0);
+        return acc;
+      }, {}),
+    )
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, amount]) => ({ month, amount: Math.round(amount * 100) / 100 }));
+  }, [receipts]);
+
+  const resetScan = () => {
+    setImage(null);
+    setFormData({ ...BLANK_FORM, device_info: navigator.userAgent, capture_source: 'camera' });
+  };
+
+  const readFileAsBase64 = (file: File) =>
+    new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const base64 = await new Promise<string>((res) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result as string);
-      r.readAsDataURL(file);
-    });
-    const resized = await resizeImage(base64);
+
+    const source = fileInputRef.current?.capture ? 'camera' : 'upload';
+    const base64 = await readFileAsBase64(file);
+    const resized = await resizeImageTo2000(base64);
+
     setImage(resized);
-    setFormData({ ...BLANK_FORM });
+    setFormData({
+      ...BLANK_FORM,
+      transaction_date: todayISO(),
+      device_info: navigator.userAgent,
+      capture_source: source === 'camera' ? 'camera' : 'upload',
+    });
     setActiveTab('scan');
+
     if (e.target) e.target.value = '';
   };
 
   const processReceipt = async () => {
     if (!image) return;
+
     setScanning(true);
-    try {
-      const result = await scanReceipt(image);
-      if (result.success) {
-        setFormData((prev) => ({
-          ...prev,
-          ...result.data,
-          vendor_tax_number: (result.data as any).business_number ?? prev.vendor_tax_number ?? '',
-          confidence_score: Number((result.data as any).confidence_score ?? 0),
-        }));
-        showToast('success', 'Receipt analyzed successfully!');
-      } else {
-        showToast('error', result.error);
-      }
-    } catch (e: any) {
-      showToast('error', e.message || 'Scan failed.');
+
+    const result = await scanReceipt(image);
+
+    if (!result.success) {
+      showToast('error', result.error);
+      setScanning(false);
+      return;
     }
+
+    const data: ScannedReceiptData = result.data;
+
+    setFormData((prev) => ({
+      ...prev,
+      vendor_name: data.vendor_name,
+      vendor_address: data.vendor_address,
+      vendor_tax_number: data.business_number,
+      total_amount: data.total_amount,
+      subtotal: data.subtotal,
+      tax_amount: data.tax_amount,
+      pst_amount: data.pst_amount,
+      transaction_date: data.transaction_date,
+      transaction_time: data.transaction_time,
+      payment_method: data.payment_method,
+      card_last_four: data.card_last_four,
+      category: data.category,
+      notes: data.notes,
+      confidence_score: data.confidence_score,
+      cra_readiness_score: data.cra_readiness_score,
+      thermal_warning: data.thermal_warning,
+      document_type: data.document_type,
+      duplicate_warning: data.duplicate_warning,
+      math_mismatch_warning: data.math_mismatch_warning,
+      missing_bn_warning: data.missing_bn_warning,
+    }));
+
+    showToast('success', 'Receipt analyzed successfully.');
     setScanning(false);
   };
 
   const saveReceipt = async () => {
-    if (!image || !user) return;
+    if (!image) return;
+
     setSaving(true);
+
     try {
       showToast('info', 'Computing SHA-256 integrity hash…');
       const integrityHash = await computeSHA256(image);
 
       const blob = base64ToBlob(image);
       const filePath = `${user.id}/${Date.now()}.jpg`;
-      const { error: uploadErr } = await supabase.storage
+
+      const { error: uploadError } = await supabase.storage
         .from('receipt-images')
         .upload(filePath, blob, { contentType: 'image/jpeg', upsert: false });
-      if (uploadErr) throw uploadErr;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('receipt-images')
-        .getPublicUrl(filePath);
+      if (uploadError) throw uploadError;
 
-      const { error: insertErr } = await supabase.from('receipts').insert({
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('receipt-images').getPublicUrl(filePath);
+
+      const payload = {
         user_id: user.id,
+        business_unit_id: formData.business_unit_id || null,
         vendor_name: formData.vendor_name,
         vendor_address: formData.vendor_address,
+        vendor_tax_number: formData.vendor_tax_number,
         total_amount: Number(formData.total_amount),
         subtotal: Number(formData.subtotal),
         tax_amount: Number(formData.tax_amount),
         pst_amount: Number(formData.pst_amount),
-        vendor_tax_number: formData.vendor_tax_number,
         transaction_date: formData.transaction_date,
         transaction_time: formData.transaction_time,
-        category: formData.category,
-        notes: formData.notes,
         payment_method: formData.payment_method,
         card_last_four: formData.card_last_four,
+        category: formData.category,
+        notes: formData.notes,
         currency: formData.currency,
         image_url: publicUrl,
         integrity_hash: integrityHash,
-        confidence_score: Number(formData.confidence_score ?? 0),
-      });
-      if (insertErr) throw insertErr;
+        confidence_score: Number(formData.confidence_score),
+        cra_readiness_score: Number(formData.cra_readiness_score),
+        thermal_warning: formData.thermal_warning,
+        capture_source: formData.capture_source,
+        device_info: formData.device_info,
+        usage_type: formData.usage_type,
+        business_use_percent: Number(formData.business_use_percent),
+        job_code: formData.job_code,
+        vehicle_id: formData.vehicle_id,
+      };
 
-      const ua = navigator.userAgent;
-      const auditDetails = [
-        `Added: ${formData.vendor_name}`,
-        `${fmt$(Number(formData.total_amount))} — ${formData.category}`,
-        `GST ${fmt$(Number(formData.tax_amount))}`,
-        Number(formData.pst_amount) > 0 ? `PST ${fmt$(Number(formData.pst_amount))}` : null,
-        formData.card_last_four
-          ? `${formData.payment_method} ····${formData.card_last_four}`
-          : formData.payment_method,
-        `Confidence ${Number(formData.confidence_score ?? 0)}%`,
-        `Hash: ${integrityHash.slice(0, 16)}…`,
-        `App: v${APP_VERSION}`,
-        `Agent: ${ua.slice(0, 120)}`,
-      ].filter(Boolean).join(' | ');
+      const { error: insertError } = await supabase.from('receipts').insert(payload);
+      if (insertError) throw insertError;
 
       await supabase.from('audit_logs').insert({
         user_id: user.id,
         action: 'receipt_created',
-        details: auditDetails,
+        details: [
+          `Created receipt`,
+          `Vendor: ${formData.vendor_name}`,
+          `Total: ${fmt$(Number(formData.total_amount))}`,
+          `Category: ${formData.category}`,
+          `Usage: ${formData.usage_type}`,
+          formData.job_code ? `Job: ${formData.job_code}` : null,
+          formData.vehicle_id ? `Vehicle: ${formData.vehicle_id}` : null,
+          `CRA Readiness: ${formData.cra_readiness_score}%`,
+          `AI Confidence: ${formData.confidence_score}%`,
+          `Hash: ${integrityHash.slice(0, 16)}…`,
+          `App: ${APP_VERSION}`,
+          `Agent: ${navigator.userAgent.slice(0, 120)}`,
+        ]
+          .filter(Boolean)
+          .join(' | '),
       });
 
-      setImage(null);
-      setFormData({ ...BLANK_FORM });
-      await loadData();
+      await loadReceipts();
+      resetScan();
       setActiveTab('receipts');
-      showToast('success', 'Receipt saved — integrity hash recorded.');
+      showToast('success', 'Receipt saved and integrity-hashed successfully.');
     } catch (e: any) {
-      showToast('error', `Save failed: ${e.message}`);
+      showToast('error', `Save failed: ${e.message || 'Unknown error'}`);
     }
+
     setSaving(false);
   };
 
   const exportCSV = async () => {
-    const csv = buildCSV(receipts);
+    const csv = buildReceiptsCSV(filteredReceipts);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `receipt-pro-${todayISO()}.csv`; a.click();
+    a.href = url;
+    a.download = `receipt-pro-${todayISO()}.csv`;
+    a.click();
     URL.revokeObjectURL(url);
+
     await supabase.from('audit_logs').insert({
       user_id: user.id,
       action: 'export_csv',
-      details: `Exported ${receipts.length} receipt(s) to CSV | App: v${APP_VERSION} | Agent: ${navigator.userAgent.slice(0, 80)}`,
+      details: `Exported ${filteredReceipts.length} receipt(s) to receipts.csv | App: ${APP_VERSION} | Agent: ${navigator.userAgent.slice(0, 90)}`,
     });
-    showToast('success', 'CSV exported successfully!');
+
+    showToast('success', 'CSV export downloaded.');
   };
 
   const exportAuditPackage = async () => {
-    showToast('info', 'Building CRA Audit Package — please wait…');
+    showToast('info', 'Building CRA audit package…');
+
     const zip = new JSZip();
+    zip.file('receipts.csv', buildReceiptsCSV(filteredReceipts));
+    zip.file('LOGBOOK.csv', buildLogbookCSV(filteredReceipts, user.email ?? 'unknown'));
 
-    zip.file('receipts.csv', buildCSV(receipts));
-    zip.file('LOGBOOK.csv', buildLogbook(receipts, user.email ?? 'unknown'));
+    zip.file(
+      'README.txt',
+      [
+        'Receipt Pro — CRA Audit Package',
+        `App Version: ${APP_VERSION}`,
+        `Generated: ${new Date().toISOString()}`,
+        `Operator: ${user.email ?? 'unknown'}`,
+        '',
+        'Contents:',
+        '  receipts.csv  - structured export of receipt data',
+        '  LOGBOOK.csv   - image logbook with SHA-256 hash references',
+        '  images/       - source receipt images',
+        '',
+        'Verification:',
+        '  macOS/Linux: shasum -a 256 filename.jpg',
+        '  Windows: CertUtil -hashfile filename.jpg SHA256',
+        '',
+        'Retention:',
+        '  Keep records for at least six years from the end of the relevant tax year.',
+      ].join('\n'),
+    );
 
-    zip.file('README.txt', [
-      `Receipt Pro — CRA Audit Package`,
-      `Standard: IC05-1R1 (Electronic Records)`,
-      `App Version: ${APP_VERSION}`,
-      `Exported: ${new Date().toISOString()}`,
-      `Operator: ${user.email ?? 'unknown'}`,
-      ``,
-      `FILES IN THIS PACKAGE:`,
-      `  receipts.csv  — Full expense register with GST/PST breakdown and SHA-256 hash`,
-      `  LOGBOOK.csv   — CRA imaging logbook: filename, scan date, operator, SHA-256 hash`,
-      `  images/       — Original high-resolution receipt images`,
-      `  README.txt    — This file`,
-      ``,
-      `INTEGRITY VERIFICATION:`,
-      `  Each entry in LOGBOOK.csv contains a SHA-256 hash computed from the`,
-      `  original image bytes at the time of scanning. To verify a file has`,
-      `  not been altered, compute its SHA-256 hash and compare to LOGBOOK.csv.`,
-      ``,
-      `  Windows: CertUtil -hashfile filename.jpg SHA256`,
-      `  macOS/Linux: shasum -a 256 filename.jpg`,
-      ``,
-      `Retain this package for a minimum of 6 years per CRA guidelines.`,
-    ].join('\n'));
+    const imagesFolder = zip.folder('images')!;
 
-    const imgFolder = zip.folder('images')!;
     await Promise.allSettled(
-      receipts
+      filteredReceipts
         .filter((r) => r.image_url)
         .map(async (r) => {
-          try {
-            const res = await fetch(r.image_url!);
-            const blob = await res.blob();
-            const filename = `${r.transaction_date}_${r.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}_${r.id.slice(0, 8)}.jpg`;
-            imgFolder.file(filename, blob);
-          } catch {
-            // skip unreachable images
-          }
-        })
+          const res = await fetch(r.image_url!);
+          const blob = await res.blob();
+          const filename = `${r.transaction_date}_${r.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}_${r.id.slice(0, 8)}.jpg`;
+          imagesFolder.file(filename, blob);
+        }),
     );
 
     const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -684,99 +963,79 @@ function AppShell({ user, fileInputRef }: {
     await supabase.from('audit_logs').insert({
       user_id: user.id,
       action: 'export_zip',
-      details: `CRA Audit Package exported — ${receipts.length} receipt(s), ${receipts.filter((r) => r.image_url).length} image(s) | App: v${APP_VERSION} | Agent: ${navigator.userAgent.slice(0, 80)}`,
+      details: `Exported CRA package with ${filteredReceipts.length} receipt(s) and ${filteredReceipts.filter((r) => r.image_url).length} image(s) | App: ${APP_VERSION} | Agent: ${navigator.userAgent.slice(0, 90)}`,
     });
-    showToast('success', 'CRA Audit Package downloaded!');
+
+    showToast('success', 'CRA audit package downloaded.');
   };
 
-  const stats = receipts.reduce(
-    (acc, r) => ({ total: acc.total + r.total_amount, tax: acc.tax + r.tax_amount, count: acc.count + 1 }),
-    { total: 0, tax: 0, count: 0 }
-  );
-  const avg = stats.count ? stats.total / stats.count : 0;
-
-  const categoryData = Object.entries(
-    receipts.reduce((acc: Record<string, number>, r) => {
-      acc[r.category] = (acc[r.category] || 0) + r.total_amount;
-      return acc;
-    }, {})
-  )
-    .map(([name, amount]) => ({ name, amount: Math.round(amount * 100) / 100 }))
-    .sort((a, b) => b.amount - a.amount);
-
-  const monthlyData = Object.entries(
-    receipts.reduce((acc: Record<string, number>, r) => {
-      const month = r.transaction_date?.slice(0, 7) || '';
-      if (month) acc[month] = (acc[month] || 0) + r.total_amount;
-      return acc;
-    }, {})
-  )
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, amount]) => ({ month, amount: Math.round(amount * 100) / 100 }));
-
-  const navTabs: { id: Tab; icon: React.ReactNode; label: string; center?: boolean }[] = [
-    { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-    { id: 'receipts', icon: <Receipt size={20} />, label: 'Receipts' },
-    { id: 'scan', icon: <Camera size={22} />, label: 'Scan', center: true },
-    { id: 'export', icon: <Download size={20} />, label: 'Export' },
-    { id: 'audit', icon: <ShieldCheck size={20} />, label: 'Audit' },
+  const navTabs: { id: Tab; label: string; icon: React.ReactNode; center?: boolean }[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+    { id: 'receipts', label: 'Receipts', icon: <Receipt size={20} /> },
+    { id: 'scan', label: 'Scan', icon: <Camera size={22} />, center: true },
+    { id: 'export', label: 'Export', icon: <Download size={20} /> },
+    { id: 'audit', label: 'Audit', icon: <ShieldCheck size={20} /> },
   ];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {toast && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium max-w-xs w-full ${
-          toast.type === 'error' ? 'bg-red-500 text-white' :
-          toast.type === 'info' ? 'bg-blue-500 text-white' :
-          'bg-emerald-500 text-white'
-        }`}>
+        <div
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl text-sm font-medium max-w-sm w-[calc(100%-2rem)] ${
+            toast.type === 'error'
+              ? 'bg-red-500 text-white'
+              : toast.type === 'info'
+              ? 'bg-blue-500 text-white'
+              : 'bg-emerald-500 text-white'
+          }`}
+        >
           {toast.type === 'error' ? <AlertCircle size={16} /> : toast.type === 'info' ? <Info size={16} /> : <CheckCircle2 size={16} />}
           <span className="flex-1">{toast.msg}</span>
         </div>
       )}
 
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm">
-        <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-blue-500 rounded-xl flex items-center justify-center shadow-md">
-              <ReceiptIcon className="w-5 h-5 text-white" />
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/70 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-5 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center shadow-md flex-shrink-0">
+              <Receipt className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-base font-bold text-slate-900 leading-none">Receipt Pro</h1>
-              <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-0.5">
-                IC05-1R1 · v{APP_VERSION}
-              </p>
+            <div className="min-w-0">
+              <h1 className="text-base font-bold text-slate-900 truncate">Receipt Pro</h1>
+              <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-0.5">Canada · CRA Ready · v{APP_VERSION}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="relative">
               <button
-                onClick={() => setRoleOpen(!roleOpen)}
+                onClick={() => setRoleOpen((v) => !v)}
                 className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-3 py-1.5 transition-all"
               >
                 <UserCircle2 size={13} className="text-blue-500" />
-                Role: Owner
+                Role: {role}
                 <ChevronDown size={11} className={`text-slate-400 transition-transform ${roleOpen ? 'rotate-180' : ''}`} />
               </button>
+
               {roleOpen && (
-                <div className="absolute right-0 top-9 bg-white border border-slate-200 rounded-2xl shadow-xl p-3 min-w-[180px] z-50">
+                <div className="absolute right-0 top-10 bg-white border border-slate-200 rounded-2xl shadow-xl p-3 min-w-[180px] z-50">
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2 px-1">Switch Role</p>
-                  {['Owner', 'Accountant', 'Employee'].map((role) => (
+                  {(['Owner', 'Employee'] as Role[]).map((item) => (
                     <button
-                      key={role}
-                      onClick={() => setRoleOpen(false)}
+                      key={item}
+                      onClick={() => {
+                        setRole(item);
+                        setRoleOpen(false);
+                      }}
                       className={`w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
-                        role === 'Owner' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
+                        role === item ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      <Layers size={13} />{role}
-                      {role === 'Owner' && <CheckCircle2 size={12} className="ml-auto text-blue-500" />}
+                      <Layers size={13} />
+                      {item}
+                      {role === item && <CheckCircle2 size={12} className="ml-auto text-blue-500" />}
                     </button>
                   ))}
-                  <p className="text-[10px] text-slate-400 text-center mt-2 pt-2 border-t border-slate-100">
-                    Multi-role coming soon
-                  </p>
                 </div>
               )}
             </div>
@@ -791,63 +1050,78 @@ function AppShell({ user, fileInputRef }: {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 pt-6 pb-28">
+      <main className="max-w-5xl mx-auto px-4 sm:px-5 pt-6 pb-28">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
-            <p className="text-slate-400 text-sm font-medium">Loading your dashboard…</p>
+            <p className="text-slate-400 text-sm font-medium">Loading your workspace…</p>
           </div>
         ) : (
           <>
             {activeTab === 'dashboard' && (
-              <DashboardTab stats={{ ...stats, avg }} categoryData={categoryData} monthlyData={monthlyData} />
+              <DashboardTab
+                stats={stats}
+                categoryData={categoryData}
+                monthlyData={monthlyData}
+              />
             )}
+
             {activeTab === 'receipts' && (
-              <ReceiptsTab receipts={receipts} onSelect={setSelectedReceipt} onRefresh={loadData} />
+              <ReceiptsTab
+                receipts={filteredReceipts}
+                search={search}
+                setSearch={setSearch}
+                onSelect={setSelectedReceipt}
+                onRefresh={loadReceipts}
+              />
             )}
+
             {activeTab === 'scan' && (
               <ScanTab
                 image={image}
                 scanning={scanning}
-                formData={formData}
                 saving={saving}
-                onFile={handleFile}
+                formData={formData}
+                setFormData={setFormData}
+                businessUnits={businessUnits}
                 onProcess={processReceipt}
                 onSave={saveReceipt}
-                onChange={setFormData}
+                onClear={resetScan}
                 fileRef={fileInputRef}
-                onClear={() => { setImage(null); setFormData({ ...BLANK_FORM }); }}
               />
             )}
+
             {activeTab === 'export' && (
-              <ExportTab receipts={receipts} onCSV={exportCSV} onAuditPackage={exportAuditPackage} />
+              <ExportTab receipts={filteredReceipts} onCSV={exportCSV} onAuditPackage={exportAuditPackage} />
             )}
+
             {activeTab === 'audit' && (
-              <AuditTab logs={auditLogs} onRefresh={loadAudit} loading={auditLoading} />
+              <AuditTab logs={auditLogs} loading={auditLoading} onRefresh={loadAuditLogs} />
             )}
           </>
         )}
       </main>
 
-      {selectedReceipt && (
-        <DetailView receipt={selectedReceipt} onClose={() => setSelectedReceipt(null)} />
-      )}
+      {selectedReceipt && <DetailView receipt={selectedReceipt} onClose={() => setSelectedReceipt(null)} />}
 
-      <nav className="fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/60 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
-        <div className="max-w-2xl mx-auto px-2 py-2 flex items-center justify-around">
+      <nav className="fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/70 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+        <div className="max-w-5xl mx-auto px-2 py-2 flex items-center justify-around">
           {navTabs.map((tab) =>
             tab.center ? (
               <div key={tab.id} className="flex flex-col items-center gap-1 -mt-6">
                 <div className="relative">
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => {
+                      setActiveTab('scan');
+                      fileInputRef.current?.click();
+                    }}
                     className="w-14 h-14 bg-blue-500 hover:bg-blue-600 active:scale-95 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/40 transition-all"
                   >
                     <Camera className="w-6 h-6 text-white" />
                   </button>
                   <div
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-help"
-                    title="CRA Tip: Scan thermal receipts immediately before they fade."
+                    className="absolute -top-1 -right-1 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center border-2 border-white shadow-sm"
+                    title="Thermal receipts fade quickly. Scan them immediately."
                   >
                     <Thermometer size={10} className="text-white" />
                   </div>
@@ -865,16 +1139,16 @@ function AppShell({ user, fileInputRef }: {
                 {tab.icon}
                 <span className="text-[10px] font-semibold">{tab.label}</span>
               </button>
-            )
+            ),
           )}
         </div>
 
         {activeTab === 'scan' && (
-          <div className="max-w-2xl mx-auto px-4 pb-2">
+          <div className="max-w-5xl mx-auto px-4 pb-2">
             <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
               <Thermometer size={13} className="text-amber-500 flex-shrink-0" />
               <p className="text-[11px] text-amber-700 font-medium leading-snug">
-                <strong>CRA Tip:</strong> Scan thermal receipts immediately — heat-sensitive ink fades within months and may become unacceptable for audit purposes.
+                <strong>Thermal receipt warning:</strong> Heat-sensitive receipts can fade quickly. Capture them right away and keep the original image in storage.
               </p>
             </div>
           </div>
@@ -884,7 +1158,7 @@ function AppShell({ user, fileInputRef }: {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         capture="environment"
         className="hidden"
         onChange={handleFile}
@@ -895,17 +1169,22 @@ function AppShell({ user, fileInputRef }: {
   );
 }
 
-// ── Dashboard Tab ──────────────────────────────────────────────────────────────
-function DashboardTab({ stats, categoryData, monthlyData }: {
-  stats: { total: number; tax: number; count: number; avg: number };
+function DashboardTab({
+  stats,
+  categoryData,
+  monthlyData,
+}: {
+  stats: { total: number; tax: number; count: number; avg: number; missingBn: number; needReview: number };
   categoryData: { name: string; amount: number }[];
   monthlyData: { month: string; amount: number }[];
 }) {
-  const statCards = [
-    { label: 'Total Spend', value: fmt$(stats.total), icon: <Wallet size={18} className="text-blue-500" />, bg: 'bg-blue-50', ring: 'ring-blue-100' },
-    { label: 'GST/HST Paid', value: fmt$(stats.tax), icon: <DollarSign size={18} className="text-emerald-500" />, bg: 'bg-emerald-50', ring: 'ring-emerald-100' },
-    { label: 'Receipts', value: stats.count.toString(), icon: <Hash size={18} className="text-violet-500" />, bg: 'bg-violet-50', ring: 'ring-violet-100' },
-    { label: 'Avg Receipt', value: fmt$(stats.avg), icon: <TrendingUp size={18} className="text-amber-500" />, bg: 'bg-amber-50', ring: 'ring-amber-100' },
+  const cards = [
+    { label: 'Total Spend', value: fmt$(stats.total), icon: <Wallet size={18} className="text-blue-500" />, bg: 'bg-blue-50' },
+    { label: 'Tax Captured', value: fmt$(stats.tax), icon: <DollarSign size={18} className="text-emerald-500" />, bg: 'bg-emerald-50' },
+    { label: 'Receipts', value: String(stats.count), icon: <Hash size={18} className="text-violet-500" />, bg: 'bg-violet-50' },
+    { label: 'Avg Receipt', value: fmt$(stats.avg), icon: <TrendingUp size={18} className="text-amber-500" />, bg: 'bg-amber-50' },
+    { label: 'Missing BN', value: String(stats.missingBn), icon: <AlertCircle size={18} className="text-red-500" />, bg: 'bg-red-50' },
+    { label: 'Need Review', value: String(stats.needReview), icon: <ShieldCheck size={18} className="text-indigo-500" />, bg: 'bg-indigo-50' },
   ];
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -920,12 +1199,12 @@ function DashboardTab({ stats, categoryData, monthlyData }: {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3">
-        {statCards.map((c) => (
-          <div key={c.label} className={`bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition-shadow ring-1 ${c.ring}`}>
-            <div className={`w-9 h-9 ${c.bg} rounded-xl flex items-center justify-center mb-3`}>{c.icon}</div>
-            <p className="text-xl font-bold text-slate-900 leading-tight">{c.value}</p>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">{c.label}</p>
+      <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+        {cards.map((card) => (
+          <div key={card.label} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className={`w-9 h-9 ${card.bg} rounded-xl flex items-center justify-center mb-3`}>{card.icon}</div>
+            <p className="text-xl font-bold text-slate-900 leading-tight">{card.value}</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">{card.label}</p>
           </div>
         ))}
       </div>
@@ -934,15 +1213,13 @@ function DashboardTab({ stats, categoryData, monthlyData }: {
         <>
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">Spending by Category</h3>
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={260}>
               <BarChart data={categoryData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false}
-                  tickFormatter={(v) => v.length > 8 ? v.slice(0, 8) + '…' : v} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false}
-                  tickFormatter={(v) => `$${v}`} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => (v.length > 10 ? `${v.slice(0, 10)}…` : v)} />
+                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="amount" radius={[6, 6, 0, 0]} fill="#3b82f6" />
+                <Bar dataKey="amount" radius={[8, 8, 0, 0]} fill="#3b82f6" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -950,17 +1227,13 @@ function DashboardTab({ stats, categoryData, monthlyData }: {
           {monthlyData.length > 1 && (
             <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
               <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">Monthly Trend</h3>
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={monthlyData} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false}
-                    tickFormatter={fmtMonth} />
-                  <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false}
-                    tickFormatter={(v) => `$${v}`} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={fmtMonth} />
+                  <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Line type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}
-                    activeDot={{ r: 6, fill: '#3b82f6' }} />
+                  <Line type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }} activeDot={{ r: 6, fill: '#3b82f6' }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -968,43 +1241,60 @@ function DashboardTab({ stats, categoryData, monthlyData }: {
         </>
       ) : (
         <div className="bg-white rounded-2xl p-10 border border-slate-100 text-center">
-          <ReceiptIcon className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">Scan your first receipt to see insights</p>
+          <Receipt className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+          <p className="text-slate-400 text-sm">Scan your first receipt to start building your records vault.</p>
         </div>
       )}
     </div>
   );
 }
 
-// ── Receipts Tab ───────────────────────────────────────────────────────────────
-function ReceiptsTab({ receipts, onSelect, onRefresh }: {
-  receipts: Receipt[];
-  onSelect: (r: Receipt) => void;
+function ReceiptsTab({
+  receipts,
+  search,
+  setSearch,
+  onSelect,
+  onRefresh,
+}: {
+  receipts: ReceiptRow[];
+  search: string;
+  setSearch: (v: string) => void;
+  onSelect: (r: ReceiptRow) => void;
   onRefresh: () => void;
 }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Receipts</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {receipts.length} record{receipts.length !== 1 ? 's' : ''} · {receipts.filter(r => r.integrity_hash).length} integrity-verified
-          </p>
+          <p className="text-xs text-slate-400 mt-0.5">{receipts.length} records ready for review and export</p>
         </div>
-        <button onClick={onRefresh} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-blue-500 transition-all">
-          <RefreshCw size={18} />
-        </button>
+
+        <div className="flex gap-2">
+          <div className="relative flex-1 sm:w-72">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search vendor, BN, date, job code"
+              className={`${inputCls} pl-9`}
+            />
+          </div>
+          <button onClick={onRefresh} className="p-2.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-blue-500 transition-all">
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </div>
 
       {receipts.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 border border-slate-100 text-center">
           <Receipt className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">No receipts yet — tap Scan to add one</p>
+          <p className="text-slate-400 text-sm">No receipts yet. Use Scan to add your first one.</p>
         </div>
       ) : (
         <div className="space-y-2.5">
           {receipts.map((r) => {
-            const tone = getConfidenceTone(r.confidence_score);
+            const confidenceTone = getConfidenceTone(r.confidence_score);
             return (
               <button
                 key={r.id}
@@ -1022,20 +1312,25 @@ function ReceiptsTab({ receipts, onSelect, onRefresh }: {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <p className="font-semibold text-slate-900 truncate text-sm">{r.vendor_name}</p>
-                      {r.integrity_hash && (
-                        <div title={`SHA-256: ${r.integrity_hash}`}>
-                          <Fingerprint size={11} className="text-emerald-400 flex-shrink-0" />
-                        </div>
-                      )}
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${tone.pill}`}>
+                      {r.integrity_hash && <Fingerprint size={11} className="text-emerald-500" />}
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${confidenceTone.pill}`}>
                         AI {Number(r.confidence_score ?? 0)}%
+                      </span>
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${getReadinessTone(r.cra_readiness_score)}`}>
+                        CRA {Number(r.cra_readiness_score ?? 0)}%
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-xs text-slate-400">{fmtDate(r.transaction_date)}</span>
                       <span className="w-1 h-1 rounded-full bg-slate-200" />
-                      <span className="text-xs text-slate-400 truncate">{r.category}</span>
+                      <span className="text-xs text-slate-400">{r.category}</span>
+                      {r.job_code && (
+                        <>
+                          <span className="w-1 h-1 rounded-full bg-slate-200" />
+                          <span className="text-xs text-slate-400">Job {r.job_code}</span>
+                        </>
+                      )}
                       {r.card_last_four && (
                         <>
                           <span className="w-1 h-1 rounded-full bg-slate-200" />
@@ -1065,363 +1360,374 @@ function ReceiptsTab({ receipts, onSelect, onRefresh }: {
   );
 }
 
-// ── Scan Tab ───────────────────────────────────────────────────────────────────
-function ScanTab({ image, scanning, formData, saving, onProcess, onSave, onChange, fileRef, onClear }: {
+function ScanTab({
+  image,
+  scanning,
+  saving,
+  formData,
+  setFormData,
+  businessUnits,
+  onProcess,
+  onSave,
+  onClear,
+  fileRef,
+}: {
   image: string | null;
   scanning: boolean;
-  formData: any;
   saving: boolean;
-  onFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  formData: ScanForm;
+  setFormData: (v: ScanForm) => void;
+  businessUnits: BusinessUnit[];
   onProcess: () => void;
   onSave: () => void;
-  onChange: (d: any) => void;
-  fileRef: React.RefObject<HTMLInputElement | null>;
   onClear: () => void;
+  fileRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const hasData = !!(formData.vendor_name || formData.total_amount > 0);
-  const missingTaxNumber = !String(formData.vendor_tax_number || '').trim();
   const confidenceTone = getConfidenceTone(formData.confidence_score);
+  const readinessTone = getReadinessTone(formData.cra_readiness_score);
+  const missingBn = !String(formData.vendor_tax_number || '').trim();
+  const taxClaimed = Number(formData.tax_amount) > 0 || Number(formData.pst_amount) > 0;
+
+  const setField = <K extends keyof ScanForm>(key: K, value: ScanForm[K]) => {
+    setFormData({ ...formData, [key]: value });
+  };
 
   return (
-    <div className="space-y-4">
-      <div
-        className={`relative overflow-hidden rounded-2xl border-2 transition-all ${
-          image
-            ? 'border-blue-200 bg-slate-100'
-            : 'border-dashed border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/30'
-        }`}
-        style={{ aspectRatio: '4/3' }}
-      >
-        {!image ? (
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="w-full h-full flex flex-col items-center justify-center gap-3"
-          >
-            <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center border border-blue-100">
-              <Camera className="w-10 h-10 text-blue-400" />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-slate-600">Tap to Scan Receipt</p>
-              <p className="text-xs text-slate-400 mt-1">Native camera · SHA-256 fingerprinted on save</p>
-            </div>
-          </button>
-        ) : (
-          <>
-            <img src={image} alt="Receipt" className="w-full h-full object-contain" />
-            <button
-              onClick={onClear}
-              className="absolute top-3 right-3 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
-            >
-              <RefreshCw size={14} />
+    <div className="grid lg:grid-cols-[1fr_1.05fr] gap-4 items-start">
+      <div className="space-y-4">
+        <div
+          className={`relative overflow-hidden rounded-2xl border-2 transition-all ${
+            image ? 'border-blue-200 bg-slate-100' : 'border-dashed border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/30'
+          }`}
+          style={{ aspectRatio: '4 / 3' }}
+        >
+          {!image ? (
+            <button onClick={() => fileRef.current?.click()} className="w-full h-full flex flex-col items-center justify-center gap-3">
+              <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center border border-blue-100">
+                <Camera className="w-10 h-10 text-blue-400" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-slate-700">Tap to capture or upload</p>
+                <p className="text-xs text-slate-400 mt-1">Native mobile camera · resized to 2000px before AI processing</p>
+              </div>
             </button>
-            <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white rounded-full px-2.5 py-1">
-              <Fingerprint size={11} />
-              <span className="text-[10px] font-semibold">IC05-1R1</span>
-            </div>
-          </>
+          ) : (
+            <>
+              <img src={image} alt="Receipt upload preview" className="w-full h-full object-contain" />
+              <button onClick={onClear} className="absolute top-3 right-3 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors">
+                <RefreshCw size={14} />
+              </button>
+              <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white rounded-full px-2.5 py-1">
+                <Fingerprint size={11} />
+                <span className="text-[10px] font-semibold">SHA-256 on save</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {image && !scanning && !hasData && (
+          <button
+            onClick={onProcess}
+            className="w-full bg-blue-500 hover:bg-blue-600 active:scale-[0.99] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-blue-500/25 transition-all"
+          >
+            <ScanLine size={20} />
+            Analyze with Gemini 2.5 Flash
+          </button>
         )}
+
+        {scanning && (
+          <div className="bg-white border border-slate-100 rounded-2xl p-8 text-center">
+            <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-3" />
+            <p className="font-semibold text-slate-700">Extracting Canadian receipt data…</p>
+            <p className="text-xs text-slate-400 mt-1">Vendor · BN · GST · PST · total · date · payment · last 4</p>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {formData.thermal_warning && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="flex gap-2">
+                <Thermometer size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  Thermal-paper risk detected. Keep the original image and avoid relying on the paper receipt alone.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {formData.math_mismatch_warning && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+              <div className="flex gap-2">
+                <AlertCircle size={14} className="text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-red-700 leading-relaxed">
+                  Math mismatch detected. Review subtotal, tax, and total before saving.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {formData.duplicate_warning && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+              <div className="flex gap-2">
+                <Info size={14} className="text-violet-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-violet-700 leading-relaxed">
+                  Possible duplicate detected by AI. Check vendor, amount, and date before saving.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {image && !scanning && !hasData && (
-        <button
-          onClick={onProcess}
-          className="w-full bg-blue-500 hover:bg-blue-600 active:scale-[0.99] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-blue-500/25 transition-all"
-        >
-          <ScanLine size={20} /> Analyze with Gemini AI
-        </button>
-      )}
-
-      {scanning && (
-        <div className="bg-white border border-slate-100 rounded-2xl p-8 text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-3" />
-          <p className="font-semibold text-slate-700">Extracting enterprise data…</p>
-          <p className="text-xs text-slate-400 mt-1">GST · PST · Card · Address · Business Purpose</p>
-        </div>
-      )}
-
-      {hasData && !scanning && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
-            <div>
-              <h3 className="font-bold text-slate-900">Verify Data</h3>
-              <p className="text-xs text-slate-400 mt-0.5">SHA-256 hash computed at save time</p>
-            </div>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-slate-900">Review & Verification</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Side-by-side human review before final save</p>
+          </div>
+          {image && (
             <button onClick={onProcess} className="text-xs text-blue-500 hover:text-blue-700 font-semibold flex items-center gap-1">
-              <ScanLine size={12} /> Re-scan
+              <ScanLine size={12} />
+              Re-scan
             </button>
-          </div>
-
-          <div className="p-5 space-y-5">
-            <div className={`rounded-xl border px-4 py-3 ${confidenceTone.panel}`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Info size={14} className={confidenceTone.icon} />
-                  <span className="text-xs font-bold uppercase tracking-wide">AI Confidence</span>
-                </div>
-                <span className="text-sm font-bold">{Number(formData.confidence_score ?? 0)}%</span>
-              </div>
-              <p className="text-xs mt-1.5 leading-relaxed">
-                {Number(formData.confidence_score ?? 0) >= 85
-                  ? 'The scan looks strong. Still verify vendor, BN, totals, and tax fields before saving.'
-                  : Number(formData.confidence_score ?? 0) >= 60
-                  ? 'Some fields may need review. Double-check the BN, payment details, and totals before saving.'
-                  : 'Low AI confidence detected. Review the BN, total, and payment details carefully before saving.'}
-              </p>
-            </div>
-
-            <Section title="Vendor">
-              <Field label="Vendor Name" icon={<Building2 size={13} className="text-slate-400" />}>
-                <input
-                  type="text"
-                  value={formData.vendor_name}
-                  onChange={(e) => onChange({ ...formData, vendor_name: e.target.value })}
-                  className={inputCls}
-                />
-              </Field>
-
-              <Field label="Vendor Address" icon={<MapPin size={13} className="text-slate-400" />}>
-                <input
-                  type="text"
-                  value={formData.vendor_address || ''}
-                  onChange={(e) => onChange({ ...formData, vendor_address: e.target.value })}
-                  placeholder="123 Main St, Calgary, AB T2P 1J9"
-                  className={inputCls}
-                />
-              </Field>
-
-              <Field label="Business Number (BN)" icon={<Hash size={13} className="text-slate-400" />}>
-                <div className="space-y-1.5">
-                  <input
-                    type="text"
-                    value={formData.vendor_tax_number}
-                    onChange={(e) => onChange({ ...formData, vendor_tax_number: e.target.value })}
-                    placeholder="123456789RT0001"
-                    className={missingTaxNumber ? warningInputCls : inputCls}
-                  />
-                  {missingTaxNumber && (
-                    <p className="text-xs text-yellow-700 font-medium">
-                      CRA Requirement: Missing GST Number.
-                    </p>
-                  )}
-                </div>
-              </Field>
-            </Section>
-
-            <Section title="Amount Breakdown">
-              <div className="grid grid-cols-3 gap-2">
-                <Field label="Subtotal" icon={<DollarSign size={13} className="text-slate-400" />}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.subtotal ?? 0}
-                    onChange={(e) => onChange({ ...formData, subtotal: parseFloat(e.target.value) || 0 })}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="GST (5%)" icon={<DollarSign size={13} className="text-emerald-400" />}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.tax_amount}
-                    onChange={(e) => onChange({ ...formData, tax_amount: parseFloat(e.target.value) || 0 })}
-                    className={`${inputCls} border-emerald-200 focus:border-emerald-400 focus:ring-emerald-100`}
-                  />
-                </Field>
-                <Field label="PST / HST" icon={<DollarSign size={13} className="text-violet-400" />}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.pst_amount ?? 0}
-                    onChange={(e) => onChange({ ...formData, pst_amount: parseFloat(e.target.value) || 0 })}
-                    className={`${inputCls} border-violet-200 focus:border-violet-400 focus:ring-violet-100`}
-                  />
-                </Field>
-              </div>
-              <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-3 mt-1 border border-blue-100">
-                <span className="text-sm font-semibold text-blue-700">Grand Total</span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.total_amount}
-                    onChange={(e) => onChange({ ...formData, total_amount: parseFloat(e.target.value) || 0 })}
-                    className="w-28 text-right font-bold text-blue-700 bg-transparent border-0 focus:outline-none text-base"
-                  />
-                  <span className="text-xs text-blue-400 font-semibold">CAD</span>
-                </div>
-              </div>
-            </Section>
-
-            <Section title="Transaction">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Date" icon={<CalendarDays size={13} className="text-slate-400" />}>
-                  <input
-                    type="date"
-                    value={formData.transaction_date}
-                    onChange={(e) => onChange({ ...formData, transaction_date: e.target.value })}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="Time" icon={<Clock size={13} className="text-slate-400" />}>
-                  <input
-                    type="time"
-                    value={formData.transaction_time || ''}
-                    onChange={(e) => onChange({ ...formData, transaction_time: e.target.value })}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Category" icon={<Tag size={13} className="text-slate-400" />}>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => onChange({ ...formData, category: e.target.value })}
-                    className={`${inputCls} bg-white`}
-                  >
-                    {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                  </select>
-                </Field>
-                <Field label="Currency" icon={<DollarSign size={13} className="text-slate-400" />}>
-                  <select
-                    value={formData.currency}
-                    onChange={(e) => onChange({ ...formData, currency: e.target.value })}
-                    className={`${inputCls} bg-white`}
-                  >
-                    {['CAD', 'USD'].map((c) => <option key={c}>{c}</option>)}
-                  </select>
-                </Field>
-              </div>
-            </Section>
-
-            <Section title="Payment">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Method" icon={<CreditCard size={13} className="text-slate-400" />}>
-                  <select
-                    value={formData.payment_method}
-                    onChange={(e) => onChange({ ...formData, payment_method: e.target.value })}
-                    className={`${inputCls} bg-white`}
-                  >
-                    {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
-                  </select>
-                </Field>
-                <Field label="Card Last 4" icon={<CreditCard size={13} className="text-slate-400" />}>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 text-sm font-mono select-none">····</span>
-                    <input
-                      type="text"
-                      maxLength={4}
-                      value={formData.card_last_four || ''}
-                      onChange={(e) => onChange({ ...formData, card_last_four: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                      placeholder="1234"
-                      className={`${inputCls} pl-10 font-mono tracking-widest`}
-                    />
-                  </div>
-                </Field>
-              </div>
-            </Section>
-
-            <Section title="CRA Audit Notes">
-              <Field label="Business Purpose" icon={<FileText size={13} className="text-slate-400" />}>
-                <textarea
-                  rows={2}
-                  value={formData.notes}
-                  onChange={(e) => onChange({ ...formData, notes: e.target.value })}
-                  placeholder="e.g. Fuel for company delivery vehicle — client site visit"
-                  className={`${inputCls} resize-none`}
-                />
-              </Field>
-            </Section>
-
-            <div className="flex items-start gap-2.5 bg-emerald-50 rounded-xl px-4 py-3 border border-emerald-100">
-              <Fingerprint size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-emerald-700 leading-relaxed">
-                A <strong>SHA-256 integrity hash</strong> will be computed from this image using{' '}
-                <code className="text-[10px] bg-emerald-100 px-1 rounded">crypto.subtle.digest</code> and stored in the
-                database — satisfying <strong>CRA IC05-1R1 §5.2</strong> image authentication requirements.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={onSave}
-                disabled={saving}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 active:scale-[0.99] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 transition-all"
-              >
-                {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <ShieldCheck size={20} />}
-                {saving ? 'Hashing & Saving…' : 'Save to Audit Record'}
-              </button>
-
-              <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-3">
-                <Lock size={14} className="text-emerald-600" />
-                <span className="font-medium whitespace-nowrap">SHA-256 Integrity Hash generated.</span>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
-      )}
 
-      {!image && (
-        <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
-          <div className="flex gap-3">
-            <Info size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-blue-700 leading-relaxed">
-              Each image is <strong>SHA-256 fingerprinted</strong> before upload, stored CRA IC05-1R1 compliant with GST/PST breakdown, vendor address, transaction time, and card identification. Download the CRA Audit Package to get a signed LOGBOOK.csv.
+        <div className="p-5 space-y-5">
+          <div className={`rounded-xl border px-4 py-3 ${confidenceTone.panel}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide">AI Confidence</span>
+              <span className="text-sm font-bold">{formData.confidence_score}%</span>
+            </div>
+          </div>
+
+          <div className={`rounded-xl border px-4 py-3 ${readinessTone}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide">CRA Readiness Score</span>
+              <span className="text-sm font-bold">{formData.cra_readiness_score}%</span>
+            </div>
+            <p className="text-xs mt-1.5 leading-relaxed">
+              Higher scores mean stronger audit readiness based on vendor identity, BN, totals, tax fields, and supporting notes.
             </p>
           </div>
+
+          <Section title="Vendor">
+            <Field label="Vendor Name" icon={<Building2 size={13} className="text-slate-400" />}>
+              <input className={inputCls} value={formData.vendor_name} onChange={(e) => setField('vendor_name', e.target.value)} />
+            </Field>
+
+            <Field label="Vendor Address" icon={<MapPin size={13} className="text-slate-400" />}>
+              <input
+                className={inputCls}
+                value={formData.vendor_address}
+                onChange={(e) => setField('vendor_address', e.target.value)}
+                placeholder="123 Main St, Edmonton, AB"
+              />
+            </Field>
+
+            <Field label="Business Number (GST/BN)" icon={<Hash size={13} className="text-slate-400" />}>
+              <div className="space-y-1.5">
+                <input
+                  className={missingBn && taxClaimed ? warningInputCls : inputCls}
+                  value={formData.vendor_tax_number}
+                  onChange={(e) => setField('vendor_tax_number', e.target.value.replace(/\s/g, '').toUpperCase())}
+                  placeholder="123456789RT0001"
+                />
+                {missingBn && taxClaimed && (
+                  <p className="text-xs text-yellow-700 font-medium">Yellow warning: GST/BN missing while tax is being claimed.</p>
+                )}
+              </div>
+            </Field>
+          </Section>
+
+          <Section title="Transaction">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date" icon={<CalendarDays size={13} className="text-slate-400" />}>
+                <input type="date" className={inputCls} value={formData.transaction_date} onChange={(e) => setField('transaction_date', e.target.value)} />
+              </Field>
+              <Field label="Time" icon={<Clock size={13} className="text-slate-400" />}>
+                <input type="time" className={inputCls} value={formData.transaction_time} onChange={(e) => setField('transaction_time', e.target.value)} />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Amount Breakdown">
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="Subtotal" icon={<DollarSign size={13} className="text-slate-400" />}>
+                <input type="number" step="0.01" min="0" className={inputCls} value={formData.subtotal} onChange={(e) => setField('subtotal', parseFloat(e.target.value) || 0)} />
+              </Field>
+              <Field label="GST" icon={<DollarSign size={13} className="text-emerald-500" />}>
+                <input type="number" step="0.01" min="0" className={`${inputCls} border-emerald-200 focus:border-emerald-400 focus:ring-emerald-100`} value={formData.tax_amount} onChange={(e) => setField('tax_amount', parseFloat(e.target.value) || 0)} />
+              </Field>
+              <Field label="PST / HST" icon={<DollarSign size={13} className="text-violet-500" />}>
+                <input type="number" step="0.01" min="0" className={`${inputCls} border-violet-200 focus:border-violet-400 focus:ring-violet-100`} value={formData.pst_amount} onChange={(e) => setField('pst_amount', parseFloat(e.target.value) || 0)} />
+              </Field>
+            </div>
+
+            <div className="flex items-center justify-between bg-blue-50 rounded-xl px-4 py-3 mt-1 border border-blue-100">
+              <span className="text-sm font-semibold text-blue-700">Grand Total</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="w-32 text-right font-bold text-blue-700 bg-transparent border-0 focus:outline-none text-base"
+                value={formData.total_amount}
+                onChange={(e) => setField('total_amount', parseFloat(e.target.value) || 0)}
+              />
+            </div>
+          </Section>
+
+          <Section title="Payment">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Method" icon={<CreditCard size={13} className="text-slate-400" />}>
+                <select className={`${inputCls} bg-white`} value={formData.payment_method} onChange={(e) => setField('payment_method', e.target.value)}>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Card Last 4" icon={<CreditCard size={13} className="text-slate-400" />}>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 text-sm font-mono select-none">····</span>
+                  <input
+                    className={`${inputCls} pl-10 font-mono tracking-widest`}
+                    maxLength={4}
+                    value={formData.card_last_four}
+                    onChange={(e) => setField('card_last_four', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="1234"
+                  />
+                </div>
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Construction / Field">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Job Code" icon={<Tag size={13} className="text-slate-400" />}>
+                <input className={inputCls} value={formData.job_code} onChange={(e) => setField('job_code', e.target.value)} placeholder="JOB-2407" />
+              </Field>
+
+              <Field label="Vehicle ID" icon={<Truck size={13} className="text-slate-400" />}>
+                <input className={inputCls} value={formData.vehicle_id} onChange={(e) => setField('vehicle_id', e.target.value)} placeholder="TRUCK-12" />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Usage Type" icon={<Layers size={13} className="text-slate-400" />}>
+                <select className={`${inputCls} bg-white`} value={formData.usage_type} onChange={(e) => setField('usage_type', e.target.value as ScanForm['usage_type'])}>
+                  {USAGE_TYPES.map((v) => (
+                    <option key={v} value={v}>
+                      {v.charAt(0).toUpperCase() + v.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Business Use %" icon={<Hash size={13} className="text-slate-400" />}>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  className={inputCls}
+                  value={formData.business_use_percent}
+                  onChange={(e) => setField('business_use_percent', Math.min(100, Math.max(0, parseInt(e.target.value || '0', 10))))}
+                />
+              </Field>
+            </div>
+
+            <Field label="Business Unit" icon={<Building2 size={13} className="text-slate-400" />}>
+              <select className={`${inputCls} bg-white`} value={formData.business_unit_id} onChange={(e) => setField('business_unit_id', e.target.value)}>
+                <option value="">Select business unit</option>
+                {businessUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </Section>
+
+          <Section title="Notes">
+            <Field label="Business Purpose" icon={<FileText size={13} className="text-slate-400" />}>
+              <textarea
+                rows={3}
+                className={`${inputCls} resize-none`}
+                value={formData.notes}
+                onChange={(e) => setField('notes', e.target.value)}
+                placeholder="Explain why this purchase was for business use."
+              />
+            </Field>
+          </Section>
+
+          <Section title="Metadata">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Capture Source" icon={<Camera size={13} className="text-slate-400" />}>
+                <input className={inputCls} value={formData.capture_source} readOnly />
+              </Field>
+              <Field label="Document Type" icon={<Receipt size={13} className="text-slate-400" />}>
+                <input className={inputCls} value={formData.document_type} readOnly />
+              </Field>
+            </div>
+          </Section>
+
+          <div className="flex items-start gap-2.5 bg-emerald-50 rounded-xl px-4 py-3 border border-emerald-100">
+            <Fingerprint size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-emerald-700 leading-relaxed">
+              On save, the image is fingerprinted with SHA-256 and stored alongside the receipt record for audit integrity and export logbook verification.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onSave}
+              disabled={saving || !image}
+              className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 active:scale-[0.99] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 transition-all"
+            >
+              {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <ShieldCheck size={20} />}
+              {saving ? 'Hashing & Saving…' : 'Save Receipt'}
+            </button>
+
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-3">
+              <Lock size={14} className="text-emerald-600" />
+              <span className="font-medium whitespace-nowrap">Integrity locked on save</span>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{title}</p>
-      {children}
-    </div>
-  );
-}
-
-function Field({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-        {icon}{label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-// ── Export Tab ─────────────────────────────────────────────────────────────────
-function ExportTab({ receipts, onCSV, onAuditPackage }: {
-  receipts: Receipt[];
+function ExportTab({
+  receipts,
+  onCSV,
+  onAuditPackage,
+}: {
+  receipts: ReceiptRow[];
   onCSV: () => void;
   onAuditPackage: () => void;
 }) {
   const totalImages = receipts.filter((r) => r.image_url).length;
   const hashedCount = receipts.filter((r) => r.integrity_hash).length;
-  const totalGST = receipts.reduce((a, r) => a + r.tax_amount, 0);
-  const totalPST = receipts.reduce((a, r) => a + (r.pst_amount || 0), 0);
+  const totalGST = receipts.reduce((a, r) => a + Number(r.tax_amount || 0), 0);
+  const totalPST = receipts.reduce((a, r) => a + Number(r.pst_amount || 0), 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Export</h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          {receipts.length} records · {hashedCount} integrity-verified · IC05-1R1 compliant
+          {receipts.length} records · {hashedCount} integrity-verified
         </p>
       </div>
 
       <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl p-6 text-white shadow-xl shadow-blue-500/25">
         <PackageCheck className="w-10 h-10 mb-3 opacity-80" />
         <h3 className="font-bold text-lg">CRA Audit Package</h3>
-        <p className="text-blue-100 text-sm mt-1">receipts.csv + LOGBOOK.csv + images — IC05-1R1 §5.3</p>
+        <p className="text-blue-100 text-sm mt-1">receipts.csv + LOGBOOK.csv + images/</p>
+
         <div className="grid grid-cols-4 gap-2 mt-5 text-center">
           {[
             { label: 'Receipts', value: receipts.length },
@@ -1447,8 +1753,8 @@ function ExportTab({ receipts, onCSV, onAuditPackage }: {
             <FileText className="w-6 h-6 text-emerald-500" />
           </div>
           <div className="flex-1">
-            <p className="font-bold text-slate-900">Export CSV</p>
-            <p className="text-xs text-slate-400 mt-0.5">UTF-8 BOM · Excel · GST + PST + confidence + SHA-256 hash</p>
+            <p className="font-bold text-slate-900">Export receipts.csv</p>
+            <p className="text-xs text-slate-400 mt-0.5">Includes CRA score, AI score, construction fields, and SHA-256 hash</p>
           </div>
           <ChevronRight size={16} className="text-slate-300" />
         </button>
@@ -1462,47 +1768,30 @@ function ExportTab({ receipts, onCSV, onAuditPackage }: {
             <FileArchive className="w-6 h-6 text-indigo-500" />
           </div>
           <div className="flex-1">
-            <p className="font-bold text-slate-900">Download CRA Audit Package</p>
-            <p className="text-xs text-slate-400 mt-0.5">
-              receipts.csv · LOGBOOK.csv · {totalImages} image{totalImages !== 1 ? 's' : ''} · IC05-1R1 §5.3
-            </p>
+            <p className="font-bold text-slate-900">Download ZIP Audit Package</p>
+            <p className="text-xs text-slate-400 mt-0.5">receipts.csv · LOGBOOK.csv · images/ folder</p>
           </div>
           <ChevronRight size={16} className="text-slate-300" />
         </button>
-      </div>
-
-      <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
-        <div className="flex gap-3">
-          <Fingerprint size={16} className="text-indigo-500 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-xs font-bold text-indigo-700 mb-1">What's in LOGBOOK.csv?</p>
-            <p className="text-xs text-indigo-600 leading-relaxed">
-              The logbook records every scanned image: its filename, UTC scan timestamp, operator email, app version ({APP_VERSION}), and the <strong>SHA-256 integrity hash</strong>. Cross-reference with <code className="text-[10px] bg-indigo-100 px-0.5 rounded">images/</code> using <code className="text-[10px] bg-indigo-100 px-0.5 rounded">shasum -a 256</code> to verify no image has been altered since scanning.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
-        <div className="flex gap-3">
-          <ShieldCheck size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-amber-700 leading-relaxed">
-            <strong>CRA Tip:</strong> Retain this package for a minimum of 6 years. Original images are required for GST/HST input tax credit claims under IC05-1R1.
-          </p>
-        </div>
       </div>
     </div>
   );
 }
 
-// ── Audit Tab ──────────────────────────────────────────────────────────────────
-function AuditTab({ logs, onRefresh, loading }: { logs: AuditLog[]; onRefresh: () => void; loading: boolean }) {
+function AuditTab({
+  logs,
+  loading,
+  onRefresh,
+}: {
+  logs: AuditLog[];
+  loading: boolean;
+  onRefresh: () => void;
+}) {
   const actionMeta: Record<string, { label: string; color: string }> = {
     receipt_created: { label: 'Created', color: 'bg-emerald-100 text-emerald-700' },
-    receipt_deleted: { label: 'Deleted', color: 'bg-red-100 text-red-700' },
     receipt_updated: { label: 'Updated', color: 'bg-blue-100 text-blue-700' },
     export_csv: { label: 'CSV', color: 'bg-violet-100 text-violet-700' },
-    export_zip: { label: 'Pkg', color: 'bg-indigo-100 text-indigo-700' },
+    export_zip: { label: 'ZIP', color: 'bg-indigo-100 text-indigo-700' },
   };
 
   return (
@@ -1510,7 +1799,7 @@ function AuditTab({ logs, onRefresh, loading }: { logs: AuditLog[]; onRefresh: (
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Audit Log</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{logs.length} event{logs.length !== 1 ? 's' : ''} · latest 50 records</p>
+          <p className="text-xs text-slate-400 mt-0.5">{logs.length} event(s)</p>
         </div>
         <button onClick={onRefresh} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-blue-500 transition-all">
           <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
@@ -1520,7 +1809,7 @@ function AuditTab({ logs, onRefresh, loading }: { logs: AuditLog[]; onRefresh: (
       {loading ? (
         <div className="bg-white rounded-2xl p-12 border border-slate-100 text-center">
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-3" />
-          <p className="text-slate-400 text-sm">Loading latest audit logs…</p>
+          <p className="text-slate-400 text-sm">Loading audit records…</p>
         </div>
       ) : logs.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 border border-slate-100 text-center">
@@ -1531,27 +1820,22 @@ function AuditTab({ logs, onRefresh, loading }: { logs: AuditLog[]; onRefresh: (
         <div className="space-y-2.5">
           {logs.map((log) => {
             const meta = actionMeta[log.action] || { label: log.action, color: 'bg-slate-100 text-slate-600' };
-            const [mainDetails, agentPart] = log.details.split(' | Agent:');
             return (
               <div key={log.id} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-900 leading-snug">{mainDetails}</p>
-                    {agentPart && (
-                      <p className="text-[10px] text-slate-300 mt-1 font-mono truncate">
-                        UA: {agentPart.slice(0, 70)}…
-                      </p>
-                    )}
+                    <p className="text-sm text-slate-900 leading-snug">{log.details}</p>
                     <p className="text-xs text-slate-400 mt-1.5 font-mono">
                       {new Date(log.created_at).toLocaleString('en-CA', {
-                        month: 'short', day: 'numeric', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
                       })}
                     </p>
                   </div>
-                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full flex-shrink-0 ${meta.color}`}>
-                    {meta.label}
-                  </span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full flex-shrink-0 ${meta.color}`}>{meta.label}</span>
                 </div>
               </div>
             );
@@ -1562,42 +1846,37 @@ function AuditTab({ logs, onRefresh, loading }: { logs: AuditLog[]; onRefresh: (
   );
 }
 
-// ── Detail View ────────────────────────────────────────────────────────────────
-function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => void }) {
+function DetailView({
+  receipt,
+  onClose,
+}: {
+  receipt: ReceiptRow;
+  onClose: () => void;
+}) {
   const rows = [
     { label: 'Date', value: fmtDate(receipt.transaction_date), icon: <CalendarDays size={14} /> },
-    receipt.transaction_time
-      ? { label: 'Time', value: receipt.transaction_time, icon: <Clock size={14} /> }
-      : null,
+    receipt.transaction_time ? { label: 'Time', value: receipt.transaction_time, icon: <Clock size={14} /> } : null,
     { label: 'Category', value: receipt.category, icon: <Tag size={14} /> },
+    { label: 'Usage', value: receipt.usage_type ?? '—', icon: <Layers size={14} /> },
+    { label: 'Business Use %', value: `${receipt.business_use_percent ?? 0}%`, icon: <Hash size={14} /> },
+    receipt.job_code ? { label: 'Job Code', value: receipt.job_code, icon: <Tag size={14} /> } : null,
+    receipt.vehicle_id ? { label: 'Vehicle ID', value: receipt.vehicle_id, icon: <Truck size={14} /> } : null,
     { label: 'Subtotal', value: fmt$(receipt.subtotal ?? 0), icon: <DollarSign size={14} /> },
-    { label: 'GST (5%)', value: fmt$(receipt.tax_amount), icon: <DollarSign size={14} className="text-emerald-500" /> },
-    (receipt.pst_amount ?? 0) > 0
-      ? { label: 'PST/HST', value: fmt$(receipt.pst_amount!), icon: <DollarSign size={14} className="text-violet-500" /> }
-      : null,
+    { label: 'GST', value: fmt$(receipt.tax_amount), icon: <DollarSign size={14} className="text-emerald-500" /> },
+    { label: 'PST/HST', value: fmt$(receipt.pst_amount ?? 0), icon: <DollarSign size={14} className="text-violet-500" /> },
     { label: 'Grand Total', value: fmt$(receipt.total_amount), icon: <Wallet size={14} /> },
-    { label: 'Payment', value: receipt.payment_method + (receipt.card_last_four ? ` ····${receipt.card_last_four}` : ''), icon: <CreditCard size={14} /> },
-    { label: 'Currency', value: receipt.currency, icon: <DollarSign size={14} /> },
-    receipt.vendor_address
-      ? { label: 'Address', value: receipt.vendor_address, icon: <MapPin size={14} /> }
-      : null,
-    receipt.vendor_tax_number
-      ? { label: 'BN', value: receipt.vendor_tax_number, icon: <Building2 size={14} /> }
-      : null,
+    { label: 'Payment', value: `${receipt.payment_method}${receipt.card_last_four ? ` ····${receipt.card_last_four}` : ''}`, icon: <CreditCard size={14} /> },
+    receipt.vendor_address ? { label: 'Address', value: receipt.vendor_address, icon: <MapPin size={14} /> } : null,
+    receipt.vendor_tax_number ? { label: 'BN', value: receipt.vendor_tax_number, icon: <Building2 size={14} /> } : null,
     { label: 'AI Confidence', value: `${Number(receipt.confidence_score ?? 0)}%`, icon: <Info size={14} /> },
+    { label: 'CRA Score', value: `${Number(receipt.cra_readiness_score ?? 0)}%`, icon: <ShieldCheck size={14} /> },
   ].filter(Boolean) as { label: string; value: string; icon: React.ReactNode }[];
 
   const confidenceTone = getConfidenceTone(receipt.confidence_score);
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
             <ArrowLeft size={18} />
@@ -1618,7 +1897,7 @@ function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => voi
         <div className="overflow-y-auto flex-1">
           {receipt.image_url && (
             <div className="bg-slate-50 border-b border-slate-100">
-              <img src={receipt.image_url} alt="Receipt" className="w-full max-h-72 object-contain" />
+              <img src={receipt.image_url} alt="Stored receipt" className="w-full max-h-80 object-contain" />
             </div>
           )}
 
@@ -1631,13 +1910,13 @@ function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => voi
             </div>
 
             <div className="space-y-1">
-              {rows.map((r) => (
-                <div key={r.label} className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0 gap-3">
+              {rows.map((row) => (
+                <div key={row.label} className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0 gap-3">
                   <div className="flex items-center gap-2 text-slate-400 flex-shrink-0">
-                    {r.icon}
-                    <span className="text-xs font-semibold uppercase tracking-wide">{r.label}</span>
+                    {row.icon}
+                    <span className="text-xs font-semibold uppercase tracking-wide">{row.label}</span>
                   </div>
-                  <span className="text-sm font-semibold text-slate-900 text-right break-words max-w-[55%]">{r.value}</span>
+                  <span className="text-sm font-semibold text-slate-900 text-right break-words max-w-[55%]">{row.value}</span>
                 </div>
               ))}
             </div>
@@ -1656,16 +1935,46 @@ function DetailView({ receipt, onClose }: { receipt: Receipt; onClose: () => voi
                 <Fingerprint size={13} className="text-emerald-500" />
                 <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider">SHA-256 Integrity Hash</p>
               </div>
-              <p className="text-[10px] font-mono text-emerald-700 break-all leading-relaxed">
-                {receipt.integrity_hash}
-              </p>
-              <p className="text-[10px] text-emerald-500 mt-1.5">
-                CRA IC05-1R1 §5.2 — image authentication verified
-              </p>
+              <p className="text-[10px] font-mono text-emerald-700 break-all leading-relaxed">{receipt.integrity_hash}</p>
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+        {icon}
+        {label}
+      </label>
+      {children}
     </div>
   );
 }
