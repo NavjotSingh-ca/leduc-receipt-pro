@@ -262,7 +262,7 @@ function AuthScreen() {
                 SHA-256 integrity tracking, export logbooks, and structured expense records built for professional recordkeeping.
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
-                Scanner, dashboard, history, export, and audit modules in one shell. [file:1]
+                Scanner, dashboard, history, export, and audit modules in one shell.
               </div>
             </div>
           </div>
@@ -407,15 +407,26 @@ export default function Page() {
         .from('receipts')
         .select('*')
         .eq('userid', user.id)
-        .order('createdat', { ascending: false });
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       setReceipts(((data ?? []) as any[]).map(normalizeReceipt));
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('fetchReceipts failed:', {
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        code: error?.code,
+        full: error,
+      });
       setReceipts([]);
-      showToast('error', 'Failed to load receipts.');
+      showToast(
+        'error',
+        error?.message ? `Failed to load receipts: ${error.message}` : 'Failed to load receipts.'
+      );
     } finally {
       setReceiptsLoading(false);
     }
