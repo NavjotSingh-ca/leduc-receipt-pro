@@ -1,6 +1,13 @@
 'use server';
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createHash } from 'crypto';
+
+export interface ReceiptLineItem {
+  description: string;
+  quantity: number;
+  price: number;
+}
 
 export interface ScannedReceiptData {
   vendor_name: string;
@@ -14,6 +21,7 @@ export interface ScannedReceiptData {
   transaction_date: string;
   transaction_time: string;
   payment_method: string;
+  payment_reference: string;
   category: string;
   notes: string;
   confidence_score: number;
@@ -21,21 +29,23 @@ export interface ScannedReceiptData {
   thermal_warning: boolean;
   document_type: 'receipt' | 'invoice' | 'statement' | 'unknown';
   duplicate_warning: boolean;
+  duplicate_hash: string;
   math_mismatch_warning: boolean;
   missing_bn_warning: boolean;
+  line_items: ReceiptLineItem[];
 }
 
-interface ScanResult {
+interface ScanSuccess {
   success: true;
   data: ScannedReceiptData;
 }
 
-interface ScanError {
+interface ScanFailure {
   success: false;
   error: string;
 }
 
-export type ScanReceiptResult = ScanResult | ScanError;
+export type ScanReceiptResult = ScanSuccess | ScanFailure;
 
 const CURRENT_YEAR = 2026;
 
@@ -56,13 +66,13 @@ type ValidCategory = (typeof VALID_CATEGORIES)[number];
 const SMART_PURPOSE: Record<ValidCategory, string> = {
   Fuel: 'Fuel purchased for company vehicle used in business travel',
   'Meals & Entertainment': 'Business meal or client entertainment expense',
-  'Office Supplies': 'Office supplies for business operations',
-  Travel: 'Business travel and accommodation expense',
-  'Professional Fees': 'Professional services supporting business operations',
-  Supplies: 'Supplies required for business use',
-  'Software & Subscriptions': 'Software or subscription license for business productivity',
-  Utilities: 'Utility expense for business premises',
-  'General Expense': 'General business operating expense',
+  'Office Supplies': 'Office supplies purchased for business operations',
+  Travel: 'Business travel expense incurred for work-related activity',
+  'Professional Fees': 'Professional service expense supporting business operations',
+  Supplies: 'Business supplies purchased for operational use',
+  'Software & Subscriptions': 'Software or subscription purchased for business productivity',
+  Utilities: 'Utility expense related to business operations',
+  'General Expense': 'General business operating expense with supporting receipt',
 };
 
 const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
@@ -82,11 +92,16 @@ const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
 };
 
 function buildPrompt(): string {
-  return `You are a senior Canadian CPA specializing in CRA-compliant expense management for businesses across all provinces.
+  return `
+You are a senior Canadian CPA and enterprise receipt-audit analyst building structured receipt records for CRA-ready bookkeeping.
 
-Today is April 11, ${CURRENT_YEAR}. Use this to resolve ambiguous or partial dates on the receipt.
+Today is April 11, ${CURRENT_YEAR}. Use this to resolve ambiguous or partial dates if the year is missing.
 
-Analyze the receipt image and return ONLY one valid JSON object. No markdown. No code fences. No prose.
+Analyze the uploaded receipt image and return ONLY one valid JSON object.
+No markdown.
+No code fences.
+No explanation.
+No text before or after the JSON.
 
 Required JSON schema:
 {
@@ -101,32 +116,43 @@ Required JSON schema:
   "transaction_date": "YYYY-MM-DD",
   "transaction_time": "HH:MM",
   "payment_method": "Visa | Mastercard | Amex | Debit | Cash | E-Transfer | Cheque | Unknown",
+  "payment_reference": "string",
   "category": "${VALID_CATEGORIES.join(' | ')}",
-  "notes": "minimum 8 words, CRA-audit-ready business purpose",
+  "notes": "minimum 8 words, specific CRA-audit-ready business purpose",
   "confidence_score": 0,
   "thermal_warning": false,
   "document_type": "receipt | invoice | statement | unknown",
-  "duplicate_warning": false
+  "duplicate_warning": false,
+  "line_items": [
+    {
+      "description": "string",
+      "quantity": 1,
+      "price": 0
+    }
+  ]
 }
 
 Rules:
-1. Search the ENTIRE image carefully for business name, address, BN/GST number, total, subtotal, GST, PST/HST/QST, date, time, payment method, and last 4 digits.
-2. business_number must be a CRA GST/BN pattern like 123456789RT0001. If absent, return "".
-3. For Alberta, GST is 5% and PST is always 0.00.
-4. Ontario HST 13% must be split as 5% federal + 8% provincial.
-5. Atlantic HST 15% must be split as 5% federal + 10% provincial.
-6. Quebec QST must go into pst_amount.
-7. If only a combined tax line exists, infer split from the province in the vendor address.
-8. If subtotal is missing but total and tax are visible, infer subtotal.
-9. If total is missing but subtotal and taxes are visible, infer total.
-10. payment_method must be inferred from the receipt if visible.
-11. card_last_four must be the last 4 visible digits or "".
-12. thermal_warning should be true if the receipt appears to be on faint thermal paper, low contrast, faded, washed out, or otherwise likely to degrade.
-13. confidence_score should be lower when BN is missing, totals are uncertain, or the image is poor.
-14. category must be exactly one of the allowed categories.
-15. notes must be specific and useful for CRA review.
+1. Search the ENTIRE image carefully for vendor name, full address, GST/BN number, subtotal, GST, PST/HST/QST, total, date, time, payment method, payment auth code/reference, and masked card digits.
+2. business_number must be a CRA/GST style value like 123456789RT0001 if present, otherwise "".
+3. payment_reference should be the payment auth code, approval code, reference number, or transaction reference from the payment section. If not visible, return "".
+4. line_items must contain visible purchased items when present. Each item must have description, quantity, and price. If quantity is not visible, use 1. If no line items are readable, return [].
+5. For Alberta receipts, GST is 5% and PST is 0.
+6. For Ontario HST 13%, split as 5% GST and 8% provincial portion.
+7. For Atlantic HST 15%, split as 5% GST and 10% provincial portion.
+8. For Quebec, put GST in tax_amount and QST in pst_amount.
+9. If only one tax number is visible with no split, infer split from province in the address.
+10. If subtotal is missing but total and taxes are visible, infer subtotal.
+11. If total is missing but subtotal and taxes are visible, infer total.
+12. payment_method must be one of the allowed values.
+13. card_last_four must be the last 4 visible digits when available, otherwise "".
+14. thermal_warning should be true if the receipt appears faded, faint, washed out, low contrast, or likely to degrade.
+15. confidence_score should be an integer 0-100 based on clarity, completeness, and certainty.
+16. category must be exactly one allowed category.
+17. notes must be a concise, specific business-purpose statement useful for CRA review.
 
-Return only the JSON object.`.trim();
+Return only the JSON object.
+  `.trim();
 }
 
 function prepareImage(raw: string): { data: string; mimeType: string } {
@@ -156,6 +182,7 @@ function extractJSON(raw: string): string {
   if (start !== -1 && end > start) {
     s = s.slice(start, end + 1);
   }
+
   return s;
 }
 
@@ -171,6 +198,8 @@ function toStr(v: unknown): string {
 
 function normalizeDate(raw: string): string {
   const s = raw.trim();
+
+  if (!s) return `${CURRENT_YEAR}-04-11`;
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const year = parseInt(s.slice(0, 4), 10);
@@ -218,6 +247,8 @@ function normalizeDate(raw: string): string {
 function normalizeTime(raw: string): string {
   const s = raw.trim();
 
+  if (!s) return '';
+
   const t24 = s.match(/^(\d{1,2}):(\d{2})$/);
   if (t24) {
     const h = parseInt(t24[1], 10);
@@ -241,6 +272,14 @@ function normalizeTime(raw: string): string {
 function normalizeCard(raw: string): string {
   const digits = raw.replace(/\D/g, '');
   return digits.length >= 4 ? digits.slice(-4) : '';
+}
+
+function normalizePaymentReference(raw: string): string {
+  const cleaned = raw.trim().replace(/\s+/g, ' ');
+  if (!cleaned) return '';
+
+  const match = cleaned.match(/[A-Z0-9-]{4,}/i);
+  return match ? match[0].toUpperCase() : cleaned.slice(0, 40);
 }
 
 function detectProvince(address: string): string {
@@ -328,6 +367,25 @@ function reconcileTaxes(
   };
 }
 
+function normalizeLineItems(value: unknown): ReceiptLineItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      const obj = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+      const description = toStr(obj.description);
+      const quantity = toNum(obj.quantity || 1);
+      const price = toNum(obj.price);
+
+      return {
+        description,
+        quantity: quantity > 0 ? quantity : 1,
+        price,
+      };
+    })
+    .filter((item) => item.description && item.price >= 0);
+}
+
 function computeReadinessScore(input: {
   vendor_name: string;
   vendor_address: string;
@@ -337,20 +395,24 @@ function computeReadinessScore(input: {
   subtotal: number;
   tax_amount: number;
   payment_method: string;
+  payment_reference: string;
   notes: string;
+  line_items: ReceiptLineItem[];
   math_mismatch_warning: boolean;
 }): number {
   let score = 0;
 
-  if (input.vendor_name) score += 18;
-  if (input.vendor_address) score += 10;
+  if (input.vendor_name) score += 15;
+  if (input.vendor_address) score += 8;
   if (input.business_number) score += 18;
   if (input.transaction_date) score += 12;
-  if (input.total_amount > 0) score += 14;
+  if (input.total_amount > 0) score += 12;
   if (input.subtotal > 0) score += 8;
-  if (input.tax_amount >= 0) score += 8;
-  if (input.payment_method && input.payment_method !== 'Unknown') score += 6;
-  if (input.notes.split(/\s+/).filter(Boolean).length >= 8) score += 6;
+  if (input.tax_amount >= 0) score += 7;
+  if (input.payment_method && input.payment_method !== 'Unknown') score += 5;
+  if (input.payment_reference) score += 4;
+  if (input.notes.split(/\s+/).filter(Boolean).length >= 8) score += 5;
+  if (input.line_items.length > 0) score += 6;
 
   if (input.math_mismatch_warning) score -= 15;
 
@@ -358,6 +420,7 @@ function computeReadinessScore(input: {
 }
 
 function computeConfidenceScore(options: {
+  modelConfidence: number;
   hasBNPattern: boolean;
   modelTotal: number;
   sanitized: {
@@ -365,22 +428,31 @@ function computeConfidenceScore(options: {
     vendor_name: string;
     transaction_date: string;
     vendor_address: string;
+    payment_reference: string;
   };
   thermal_warning: boolean;
+  line_items: ReceiptLineItem[];
   math_mismatch_warning: boolean;
 }): number {
-  let score = 100;
+  let score = Number.isFinite(options.modelConfidence) ? Math.round(options.modelConfidence) : 85;
 
-  if (!options.hasBNPattern) score -= 35;
-  if (options.modelTotal <= 0) score -= 20;
-  if (options.sanitized.total_amount <= 0) score -= 15;
-  if (!options.sanitized.vendor_name || options.sanitized.vendor_name === 'Unknown Vendor') score -= 8;
-  if (!options.sanitized.transaction_date) score -= 8;
-  if (!options.sanitized.vendor_address) score -= 6;
-  if (options.thermal_warning) score -= 8;
+  if (!options.hasBNPattern) score -= 18;
+  if (options.modelTotal <= 0) score -= 15;
+  if (options.sanitized.total_amount <= 0) score -= 12;
+  if (!options.sanitized.vendor_name || options.sanitized.vendor_name === 'Unknown Vendor') score -= 6;
+  if (!options.sanitized.transaction_date) score -= 6;
+  if (!options.sanitized.vendor_address) score -= 5;
+  if (!options.sanitized.payment_reference) score -= 2;
+  if (options.thermal_warning) score -= 10;
+  if (options.line_items.length === 0) score -= 4;
   if (options.math_mismatch_warning) score -= 15;
 
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function createDuplicateHash(vendorName: string, transactionDate: string, totalAmount: number): string {
+  const normalized = `${vendorName.trim().toLowerCase()}|${transactionDate.trim()}|${totalAmount.toFixed(2)}`;
+  return createHash('sha256').update(normalized).digest('hex');
 }
 
 function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
@@ -411,6 +483,7 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const transaction_date = normalizeDate(toStr(raw.transaction_date));
   const transaction_time = normalizeTime(toStr(raw.transaction_time));
   const card_last_four = normalizeCard(toStr(raw.card_last_four));
+  const payment_reference = normalizePaymentReference(toStr(raw.payment_reference));
 
   const payment_method_input = toStr(raw.payment_method);
   const payment_method = (
@@ -429,10 +502,12 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
       : 'unknown';
 
   const duplicate_warning = Boolean(raw.duplicate_warning);
+  const line_items = normalizeLineItems(raw.line_items);
   const math_mismatch_warning = Math.abs((subtotal + tax_amount + pst_amount) - total_amount) > 0.02;
   const missing_bn_warning = !business_number && tax_amount > 0;
 
   const confidence_score = computeConfidenceScore({
+    modelConfidence: toNum(raw.confidence_score),
     hasBNPattern,
     modelTotal: toNum(raw.total_amount),
     sanitized: {
@@ -440,8 +515,10 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
       vendor_name,
       transaction_date,
       vendor_address,
+      payment_reference,
     },
     thermal_warning,
+    line_items,
     math_mismatch_warning,
   });
 
@@ -454,9 +531,13 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     subtotal,
     tax_amount,
     payment_method,
+    payment_reference,
     notes,
+    line_items,
     math_mismatch_warning,
   });
+
+  const duplicate_hash = createDuplicateHash(vendor_name, transaction_date, total_amount);
 
   return {
     vendor_name,
@@ -470,6 +551,7 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     transaction_date,
     transaction_time,
     payment_method,
+    payment_reference,
     category,
     notes,
     confidence_score,
@@ -477,18 +559,37 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     thermal_warning,
     document_type,
     duplicate_warning,
+    duplicate_hash,
     math_mismatch_warning,
     missing_bn_warning,
+    line_items,
   };
+}
+
+function is429RateLimitError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('429') ||
+    m.includes('resource_exhausted') ||
+    m.includes('rate limit') ||
+    m.includes('too many requests') ||
+    m.includes('quota')
+  );
 }
 
 export async function scanReceipt(base64Image: string): Promise<ScanReceiptResult> {
   if (!process.env.GOOGLE_AI_KEY) {
-    return { success: false, error: 'AI service not configured. Add GOOGLE_AI_KEY to .env.local.' };
+    return {
+      success: false,
+      error: 'AI service not configured. Add GOOGLE_AI_KEY to your environment.',
+    };
   }
 
   if (!base64Image || base64Image.length < 500) {
-    return { success: false, error: 'Image data is too small or missing. Please retake the photo.' };
+    return {
+      success: false,
+      error: 'Image data is missing or too small. Please retake the photo.',
+    };
   }
 
   let imagePayload: { data: string; mimeType: string };
@@ -496,11 +597,17 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
   try {
     imagePayload = prepareImage(base64Image);
   } catch {
-    return { success: false, error: 'Could not decode image data. Please try again.' };
+    return {
+      success: false,
+      error: 'Could not decode image data. Please try again.',
+    };
   }
 
   if (imagePayload.data.length < 100) {
-    return { success: false, error: 'Image appears to be empty after processing. Please retake it.' };
+    return {
+      success: false,
+      error: 'Image appears empty after processing. Please retake it.',
+    };
   }
 
   try {
@@ -511,7 +618,7 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
       generationConfig: {
         temperature: 0.05,
         topP: 0.8,
-        maxOutputTokens: 1400,
+        maxOutputTokens: 2200,
         responseMimeType: 'application/json',
       },
     });
@@ -529,7 +636,10 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     const rawText = result.response.text().trim();
 
     if (!rawText) {
-      return { success: false, error: 'AI returned an empty response. Please try again.' };
+      return {
+        success: false,
+        error: 'AI returned an empty response. Please try again.',
+      };
     }
 
     const jsonString = extractJSON(rawText);
@@ -538,34 +648,54 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     try {
       parsed = JSON.parse(jsonString);
     } catch {
-      console.error('[scanReceipt] JSON.parse failed. Raw model output:\n', rawText);
+      console.error('[scanReceipt] JSON parse failed. Raw model output:\n', rawText);
       return {
         success: false,
         error: 'Could not parse the AI response. Ensure the receipt is in focus and well lit.',
       };
     }
 
-    return { success: true, data: sanitize(parsed) };
+    return {
+      success: true,
+      data: sanitize(parsed),
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
 
-    if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
-      return { success: false, error: 'Invalid Google AI key. Check GOOGLE_AI_KEY in .env.local.' };
+    if (is429RateLimitError(msg)) {
+      return {
+        success: false,
+        error:
+          'The AI scanner is temporarily rate-limited right now. Please wait a moment and try again.',
+      };
     }
 
-    if (msg.includes('RESOURCE_EXHAUSTED') || msg.toLowerCase().includes('quota')) {
-      return { success: false, error: 'AI quota exceeded. Please wait and try again.' };
+    if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
+      return {
+        success: false,
+        error: 'Invalid Google AI key. Check GOOGLE_AI_KEY in your environment.',
+      };
     }
 
     if (msg.includes('SAFETY')) {
-      return { success: false, error: 'Image flagged by safety filter. Try a clearer receipt photo.' };
+      return {
+        success: false,
+        error: 'Image was blocked by the AI safety filter. Please retake a clearer receipt image.',
+      };
     }
 
     if (msg.includes('DEADLINE_EXCEEDED') || msg.toLowerCase().includes('timeout')) {
-      return { success: false, error: 'Request timed out. The image may be too large or unclear.' };
+      return {
+        success: false,
+        error: 'Receipt scan timed out. Please try again with a clearer or smaller image.',
+      };
     }
 
     console.error('[scanReceipt] Unhandled error:', msg);
-    return { success: false, error: 'Receipt scan failed. Check server logs for details.' };
+
+    return {
+      success: false,
+      error: 'Receipt scan failed. Please try again.',
+    };
   }
 }

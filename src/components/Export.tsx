@@ -1,0 +1,443 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import JSZip from 'jszip';
+import {
+  AlertTriangle,
+  Download,
+  FileArchive,
+  FileText,
+  Fingerprint,
+  Loader2,
+  ShieldCheck,
+  CalendarRange,
+} from 'lucide-react';
+
+export interface ReceiptRow {
+  id: string;
+  vendor_name?: string;
+  vendorname?: string;
+
+  vendor_address?: string | null;
+  vendoraddress?: string | null;
+
+  business_number?: string | null;
+  vendortaxnumber?: string | null;
+
+  transaction_date?: string | null;
+  transactiondate?: string | null;
+
+  category?: string | null;
+  notes?: string | null;
+
+  payment_method?: string | null;
+  paymentmethod?: string | null;
+
+  card_last_four?: string | null;
+  cardlastfour?: string | null;
+
+  currency?: string | null;
+
+  subtotal?: number | null;
+  tax_amount?: number | null;
+  taxamount?: number | null;
+  pst_amount?: number | null;
+  pstamount?: number | null;
+  total_amount?: number | null;
+  totalamount?: number | null;
+
+  job_code?: string | null;
+  vehicle_id?: string | null;
+
+  business_use_percent?: number | null;
+
+  line_items?: Array<Record<string, unknown>> | string | null;
+
+  integrity_hash?: string | null;
+  integrityhash?: string | null;
+
+  image_url?: string | null;
+  imageurl?: string | null;
+
+  created_at?: string | null;
+  createdat?: string | null;
+}
+
+interface ExportProps {
+  receipts: ReceiptRow[];
+}
+
+const currencyFormatter = new Intl.NumberFormat('en-CA', {
+  style: 'currency',
+  currency: 'CAD',
+  maximumFractionDigits: 2,
+});
+
+function toNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getVendor(receipt: ReceiptRow): string {
+  return String(receipt.vendor_name ?? receipt.vendorname ?? 'Unknown Vendor').trim() || 'Unknown Vendor';
+}
+
+function getDate(receipt: ReceiptRow): string {
+  return String(receipt.transaction_date ?? receipt.transactiondate ?? '').trim();
+}
+
+function getCategory(receipt: ReceiptRow): string {
+  return String(receipt.category ?? 'Uncategorized').trim() || 'Uncategorized';
+}
+
+function getTotal(receipt: ReceiptRow): number {
+  return toNumber(receipt.total_amount ?? receipt.totalamount);
+}
+
+function getGST(receipt: ReceiptRow): number {
+  return toNumber(receipt.tax_amount ?? receipt.taxamount);
+}
+
+function getPST(receipt: ReceiptRow): number {
+  return toNumber(receipt.pst_amount ?? receipt.pstamount);
+}
+
+function getBN(receipt: ReceiptRow): string {
+  return String(receipt.business_number ?? receipt.vendortaxnumber ?? '').trim();
+}
+
+function getImageUrl(receipt: ReceiptRow): string {
+  return String(receipt.image_url ?? receipt.imageurl ?? '').trim();
+}
+
+function getHash(receipt: ReceiptRow): string {
+  return String(receipt.integrity_hash ?? receipt.integrityhash ?? '').trim();
+}
+
+function formatDateInput(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function withinRange(receipt: ReceiptRow, from: string, to: string): boolean {
+  const date = getDate(receipt);
+  if (!date) return false;
+  if (from && date < from) return false;
+  if (to && date > to) return false;
+  return true;
+}
+
+function csvEscape(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value);
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function stringifyLineItems(lineItems: ReceiptRow['line_items']): string {
+  if (!lineItems) return '';
+  if (typeof lineItems === 'string') return lineItems;
+  try {
+    return JSON.stringify(lineItems);
+  } catch {
+    return '';
+  }
+}
+
+function buildCSV(receipts: ReceiptRow[]): string {
+  const headers = [
+    'Date',
+    'Vendor',
+    'Vendor Address',
+    'Category',
+    'Payment Method',
+    'Card Last 4',
+    'Currency',
+    'Subtotal',
+    'GST',
+    'PST',
+    'Total',
+    'Business Number',
+    'Business Use %',
+    'Job Code',
+    'Vehicle ID',
+    'Notes',
+    'Line Items',
+    'Integrity Hash',
+    'Image URL',
+  ];
+
+  const rows = receipts.map((receipt) => [
+    getDate(receipt),
+    getVendor(receipt),
+    String(receipt.vendor_address ?? receipt.vendoraddress ?? ''),
+    getCategory(receipt),
+    String(receipt.payment_method ?? receipt.paymentmethod ?? ''),
+    String(receipt.card_last_four ?? receipt.cardlastfour ?? ''),
+    String(receipt.currency ?? 'CAD'),
+    toNumber(receipt.subtotal).toFixed(2),
+    getGST(receipt).toFixed(2),
+    getPST(receipt).toFixed(2),
+    getTotal(receipt).toFixed(2),
+    getBN(receipt),
+    toNumber(receipt.business_use_percent ?? 100).toFixed(0),
+    String(receipt.job_code ?? ''),
+    String(receipt.vehicle_id ?? ''),
+    String(receipt.notes ?? ''),
+    stringifyLineItems(receipt.line_items),
+    getHash(receipt),
+    getImageUrl(receipt),
+  ]);
+
+  return '\ufeff' + [headers.map(csvEscape).join(','), ...rows.map((row) => row.map(csvEscape).join(','))].join('\n');
+}
+
+function buildLogbook(receipts: ReceiptRow[]): string {
+  const headers = ['Filename', 'Date', 'Operator', 'SHA-256 Hash'];
+
+  const rows = receipts
+    .filter((receipt) => getImageUrl(receipt) || getHash(receipt))
+    .map((receipt) => {
+      const filename = (() => {
+        const url = getImageUrl(receipt);
+        if (url) {
+          const last = url.split('/').pop() || `${receipt.id}.jpg`;
+          return last.split('?')[0];
+        }
+        return `${receipt.id}.jpg`;
+      })();
+
+      return [
+        filename,
+        getDate(receipt),
+        'Operator',
+        getHash(receipt),
+      ];
+    });
+
+  return '\ufeff' + [headers.map(csvEscape).join(','), ...rows.map((row) => row.map(csvEscape).join(','))].join('\n');
+}
+
+export default function Export({ receipts }: ExportProps) {
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [zipping, setZipping] = useState(false);
+
+  const filteredReceipts = useMemo(
+    () => receipts.filter((receipt) => withinRange(receipt, fromDate, toDate)),
+    [receipts, fromDate, toDate]
+  );
+
+  const totals = useMemo(() => {
+    const total = filteredReceipts.reduce((sum, receipt) => sum + getTotal(receipt), 0);
+    const gst = filteredReceipts.reduce((sum, receipt) => sum + getGST(receipt), 0);
+    const pst = filteredReceipts.reduce((sum, receipt) => sum + getPST(receipt), 0);
+    return { total, gst, pst, count: filteredReceipts.length };
+  }, [filteredReceipts]);
+
+  async function downloadCSV() {
+    if (filteredReceipts.length === 0) return;
+
+    const csv = buildCSV(filteredReceipts);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-pro-export-${formatDateInput(new Date())}.csv`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadAuditPackage() {
+    if (filteredReceipts.length === 0 || zipping) return;
+
+    setZipping(true);
+
+    try {
+      const zip = new JSZip();
+
+      zip.file('receipts.csv', buildCSV(filteredReceipts));
+      zip.file('LOGBOOK.csv', buildLogbook(filteredReceipts));
+      zip.file(
+        'README.txt',
+        [
+          'Receipt Pro CRA Audit Package',
+          '',
+          'Compliance notes:',
+          '- This package is prepared for CRA recordkeeping and audit support.',
+          '- Receipts.csv contains the transaction register with GST/PST and metadata.',
+          '- LOGBOOK.csv records filename, date, operator, and SHA-256 hash.',
+          '- The images folder contains source receipt images for the selected period.',
+          '- SHA-256 hashes help verify document integrity under IC05-1R1-style controls.',
+          '',
+          'Retention policy:',
+          '- Keep original records for at least 6 years.',
+          '- Do not delete source files while an audit hold is active.',
+          '- Preserve exported packages together with the original records.',
+          '',
+          'Verification guidance:',
+          '- Recompute SHA-256 hashes to confirm source image integrity.',
+          '- Ensure receipts remain readable, complete, and retrievable.',
+        ].join('\n')
+      );
+
+      const imageFolder = zip.folder('images');
+      if (imageFolder) {
+        await Promise.allSettled(
+          filteredReceipts.map(async (receipt) => {
+            const imageUrl = getImageUrl(receipt);
+            if (!imageUrl) return;
+
+            try {
+              const response = await fetch(imageUrl);
+              const blob = await response.blob();
+              const filename = imageUrl.split('/').pop()?.split('?')[0] || `${receipt.id}.jpg`;
+              imageFolder.file(filename, blob);
+            } catch {
+              imageFolder.file(`${receipt.id}.txt`, 'Image unavailable for this record.');
+            }
+          })
+        );
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-pro-cra-audit-package-${formatDateInput(new Date())}.zip`;
+      a.click();
+
+      URL.revokeObjectURL(url);
+    } finally {
+      setZipping(false);
+    }
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-500">Export center</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Exports</h2>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-white px-3 py-2 text-xs font-medium text-slate-500 shadow-sm">
+          {filteredReceipts.length} receipt{filteredReceipts.length === 1 ? '' : 's'} in range
+        </div>
+      </div>
+
+      <div className="grid gap-3 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm sm:grid-cols-2">
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">From</label>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">To</label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <button
+          type="button"
+          onClick={downloadCSV}
+          disabled={filteredReceipts.length === 0}
+          className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/60 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+              <FileText className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-slate-900">Download CSV Spreadsheet</p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                Includes date, vendor, taxes, job codes, line items, integrity hash, and image link.
+              </p>
+            </div>
+            <Download className="mt-1 h-4 w-4 flex-shrink-0 text-slate-300" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={downloadAuditPackage}
+          disabled={filteredReceipts.length === 0 || zipping}
+          className="rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/60 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+              {zipping ? <Loader2 className="h-6 w-6 animate-spin" /> : <FileArchive className="h-6 w-6" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-slate-900">Download CRA Audit Package (ZIP)</p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                Contains receipts.csv, LOGBOOK.csv, README.txt, and the images/ folder for the selected period.
+              </p>
+            </div>
+            <Download className="mt-1 h-4 w-4 flex-shrink-0 text-slate-300" />
+          </div>
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Total</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{currencyFormatter.format(totals.total)}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">GST</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{currencyFormatter.format(totals.gst)}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">PST</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{currencyFormatter.format(totals.pst)}</p>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-100 bg-amber-50/70 p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-white text-amber-600 shadow-sm">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-900">6-Year Retention Policy</p>
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+              CRA recordkeeping expects original receipt records to be retained for at least 6 years. This export helps
+              preserve a complete, auditable package with the source images, hash log, and spreadsheet data.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900">Audit package contents</p>
+            <p className="mt-1 text-sm leading-relaxed text-slate-500">
+              LOGBOOK.csv includes the filename, date, operator, and SHA-256 hash for each image so the package can be
+              checked against the source records later.
+            </p>
+            <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+              <Fingerprint className="h-4 w-4 text-emerald-500" />
+              <span>Integrity hashes included on every eligible receipt.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
