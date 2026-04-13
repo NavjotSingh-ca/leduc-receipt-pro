@@ -26,62 +26,36 @@ import { supabase } from '@/lib/supabase';
 
 type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit';
 
-type UiReceiptRow = {
+type ReceiptRow = {
   id: string;
-  userid?: string;
-
-  vendor_name?: string;
-  vendorname?: string;
-
-  vendor_address?: string;
-  vendoraddress?: string;
-
-  business_number?: string;
-  vendortaxnumber?: string;
-
-  transaction_date?: string;
-  transactiondate?: string;
-
-  transaction_time?: string;
-  transactiontime?: string;
-
-  category?: string;
-  notes?: string;
-
-  payment_method?: string;
-  paymentmethod?: string;
-
-  card_last_four?: string;
-  cardlastfour?: string;
-
-  currency?: string;
-
-  subtotal?: number;
-  tax_amount?: number;
-  taxamount?: number;
-  pst_amount?: number;
-  pstamount?: number;
-  total_amount?: number;
-  totalamount?: number;
-
-  job_code?: string;
-  job_codes?: string;
-  vehicle_id?: string;
-  business_use_percent?: number;
-
-  line_items?: Array<Record<string, unknown>> | string;
-
-  integrity_hash?: string;
-  integrityhash?: string;
-
-  image_url?: string;
-  imageurl?: string;
-
-  confidence_score?: number;
-  confidencescore?: number;
-
-  created_at?: string;
-  createdat?: string;
+  user_id: string;
+  vendor_name: string;
+  vendor_address: string;
+  vendor_tax_number: string;
+  transaction_date: string;
+  transaction_time: string;
+  subtotal: number;
+  tax_amount: number;
+  pst_amount: number;
+  total_amount: number;
+  currency: string;
+  payment_method: string;
+  card_last_four: string;
+  category: string;
+  notes: string;
+  job_code: string;
+  vehicle_id: string;
+  usage_type: string;
+  business_use_percent: number;
+  line_items: unknown[] | Record<string, unknown> | string | null;
+  integrity_hash: string;
+  confidence_score: number;
+  cra_readiness_score: number;
+  thermal_warning: boolean;
+  capture_source: string;
+  device_info: string;
+  is_deleted: boolean;
+  created_at: string;
 };
 
 type ToastState = {
@@ -89,78 +63,61 @@ type ToastState = {
   msg: string;
 };
 
-function toOptionalString(value: unknown): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  const str = String(value).trim();
-  return str.length ? str : undefined;
+function normalizeLineItems(rawValue: unknown): unknown[] | Record<string, unknown> | string | null {
+  if (rawValue === null || rawValue === undefined) return null;
+
+  if (Array.isArray(rawValue)) return rawValue;
+
+  if (typeof rawValue === 'object') return rawValue as Record<string, unknown>;
+
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return null;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+      return trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  return null;
 }
 
-function toOptionalNumber(value: unknown): number | undefined {
-  if (value === null || value === undefined || value === '') return undefined;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : undefined;
-}
-
-function normalizeReceipt(row: any): UiReceiptRow {
+function normalizeReceipt(raw: any): ReceiptRow {
   return {
-    id: String(row.id),
-    userid: toOptionalString(row.userid),
-
-    vendor_name: toOptionalString(row.vendor_name),
-    vendorname: toOptionalString(row.vendorname),
-
-    vendor_address: toOptionalString(row.vendor_address),
-    vendoraddress: toOptionalString(row.vendoraddress),
-
-    business_number: toOptionalString(row.business_number),
-    vendortaxnumber: toOptionalString(row.vendortaxnumber),
-
-    transaction_date: toOptionalString(row.transaction_date),
-    transactiondate: toOptionalString(row.transactiondate),
-
-    transaction_time: toOptionalString(row.transaction_time),
-    transactiontime: toOptionalString(row.transactiontime),
-
-    category: toOptionalString(row.category),
-    notes: toOptionalString(row.notes),
-
-    payment_method: toOptionalString(row.payment_method),
-    paymentmethod: toOptionalString(row.paymentmethod),
-
-    card_last_four: toOptionalString(row.card_last_four),
-    cardlastfour: toOptionalString(row.cardlastfour),
-
-    currency: toOptionalString(row.currency),
-
-    subtotal: toOptionalNumber(row.subtotal),
-    tax_amount: toOptionalNumber(row.tax_amount),
-    taxamount: toOptionalNumber(row.taxamount),
-    pst_amount: toOptionalNumber(row.pst_amount),
-    pstamount: toOptionalNumber(row.pstamount),
-    total_amount: toOptionalNumber(row.total_amount),
-    totalamount: toOptionalNumber(row.totalamount),
-
-    job_code: toOptionalString(row.job_code),
-    job_codes: toOptionalString(row.job_codes),
-    vehicle_id: toOptionalString(row.vehicle_id),
-    business_use_percent: toOptionalNumber(row.business_use_percent),
-
-    line_items:
-      row.line_items === null || row.line_items === undefined
-        ? undefined
-        : row.line_items,
-
-    integrity_hash: toOptionalString(row.integrity_hash),
-    integrityhash: toOptionalString(row.integrityhash),
-
-    image_url: toOptionalString(row.image_url),
-    imageurl: toOptionalString(row.imageurl),
-
-    confidence_score: toOptionalNumber(row.confidence_score),
-    confidencescore: toOptionalNumber(row.confidencescore),
-
-    created_at: toOptionalString(row.created_at),
-    createdat: toOptionalString(row.createdat),
+    id: String(raw?.id ?? ''),
+    user_id: String(raw?.user_id ?? ''),
+    vendor_name: raw?.vendor_name ?? '',
+    vendor_address: raw?.vendor_address ?? '',
+    vendor_tax_number: raw?.vendor_tax_number ?? '',
+    transaction_date: raw?.transaction_date ?? '',
+    transaction_time: raw?.transaction_time ?? '',
+    subtotal: Number(raw?.subtotal ?? 0),
+    tax_amount: Number(raw?.tax_amount ?? 0),
+    pst_amount: Number(raw?.pst_amount ?? 0),
+    total_amount: Number(raw?.total_amount ?? 0),
+    currency: raw?.currency ?? 'CAD',
+    payment_method: raw?.payment_method ?? '',
+    card_last_four: raw?.card_last_four ?? '',
+    category: raw?.category ?? '',
+    notes: raw?.notes ?? '',
+    job_code: raw?.job_code ?? '',
+    vehicle_id: raw?.vehicle_id ?? '',
+    usage_type: raw?.usage_type ?? '',
+    business_use_percent: Number(raw?.business_use_percent ?? 0),
+    line_items: normalizeLineItems(raw?.line_items ?? null),
+    integrity_hash: raw?.integrity_hash ?? '',
+    confidence_score: Number(raw?.confidence_score ?? 0),
+    cra_readiness_score: Number(raw?.cra_readiness_score ?? 0),
+    thermal_warning: Boolean(raw?.thermal_warning ?? false),
+    capture_source: raw?.capture_source ?? '',
+    device_info: raw?.device_info ?? '',
+    is_deleted: Boolean(raw?.is_deleted ?? false),
+    created_at: raw?.created_at ?? '',
   };
 }
 
@@ -215,7 +172,7 @@ function AuthScreen() {
         showToast('success', 'Account created. Please check your email to confirm.');
       }
     } catch (error: any) {
-      showToast('error', error?.message || 'Authentication failed.');
+      showToast('error', error?.message ?? 'Authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -364,7 +321,7 @@ export default function Page() {
 
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [activeFilter, setActiveFilter] = useState<string>('all');
-  const [receipts, setReceipts] = useState<UiReceiptRow[]>([]);
+  const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
   const [roleOpen, setRoleOpen] = useState(false);
   const [role, setRole] = useState<'Owner' | 'Employee' | 'Accountant'>('Owner');
@@ -405,21 +362,53 @@ export default function Page() {
     try {
       const { data, error } = await supabase
         .from('receipts')
-        .select('*')
-        .eq('userid', user.id)
+        .select(`
+          id,
+          user_id,
+          vendor_name,
+          vendor_address,
+          vendor_tax_number,
+          transaction_date,
+          transaction_time,
+          subtotal,
+          tax_amount,
+          pst_amount,
+          total_amount,
+          currency,
+          payment_method,
+          card_last_four,
+          category,
+          notes,
+          job_code,
+          vehicle_id,
+          usage_type,
+          business_use_percent,
+          line_items,
+          integrity_hash,
+          confidence_score,
+          cra_readiness_score,
+          thermal_warning,
+          capture_source,
+          device_info,
+          is_deleted,
+          created_at
+        `)
+        .eq('user_id', user.id)
+        .eq('is_deleted', false)
         .order('created_at', { ascending: false });
 
       if (error) {
         throw error;
       }
 
-      setReceipts(((data ?? []) as any[]).map(normalizeReceipt));
+      const safeRows = Array.isArray(data) ? data.map((row) => normalizeReceipt(row)) : [];
+      setReceipts(safeRows);
     } catch (error: any) {
       console.error('fetchReceipts failed:', {
-        message: error?.message,
-        details: error?.details,
-        hint: error?.hint,
-        code: error?.code,
+        message: error?.message ?? 'Unknown error',
+        details: error?.details ?? '',
+        hint: error?.hint ?? '',
+        code: error?.code ?? '',
         full: error,
       });
       setReceipts([]);
@@ -513,7 +502,9 @@ export default function Page() {
             >
               <UserCircle2 className="h-4 w-4 text-blue-600" />
               <span>Role: {role}</span>
-              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${roleOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-slate-400 transition ${roleOpen ? 'rotate-180' : ''}`}
+              />
             </button>
 
             {roleOpen && (
@@ -563,16 +554,9 @@ export default function Page() {
             <p className="text-sm font-medium text-slate-500">Loading your receipts...</p>
           </div>
         ) : activeTab === 'dashboard' ? (
-          <Dashboard
-            receipts={receipts as any}
-            onFilterClick={handleFilterClick}
-          />
+          <Dashboard receipts={receipts as any} onFilterClick={handleFilterClick} />
         ) : activeTab === 'receipts' ? (
-          <History
-            receipts={receipts as any}
-            activeFilter={activeFilter}
-            onUpdate={fetchReceipts}
-          />
+          <History receipts={receipts as any} activeFilter={activeFilter} onUpdate={fetchReceipts} />
         ) : activeTab === 'scan' ? (
           <Scanner
             user={user}
@@ -619,7 +603,9 @@ export default function Page() {
                 }`}
               >
                 {item.icon}
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">{item.label}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">
+                  {item.label}
+                </span>
               </button>
             )
           )}
