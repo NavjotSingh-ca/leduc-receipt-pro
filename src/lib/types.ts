@@ -1,9 +1,15 @@
-/* ─── Shared Types — Receipt Pro ─── */
+/* ─── Shared Types — Receipt Pro v4.0 ─── */
 
 export type CaptureSource = 'camera' | 'upload' | 'email' | 'bulk-import' | 'accountant-import';
 export type UsageType = 'business' | 'personal' | 'mixed';
 export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'unknown';
 export type SourceFileType = 'image' | 'pdf' | 'heic' | 'png' | 'jpg' | 'jpeg' | '';
+
+export type UserRole = 'Owner' | 'Employee' | 'Accountant';
+
+export type PaidBy = 'company_card' | 'employee_cash' | '';
+export type ReimbursementStatus = 'pending' | 'approved' | 'rejected' | '';
+export type ApprovalStatus = 'submitted' | 'approved' | 'rejected' | '';
 
 export interface ReceiptLineItem {
   description: string;
@@ -62,6 +68,14 @@ export interface ReceiptRow {
 
   line_items?: ReceiptLineItem[] | null;
 
+  /* ─── Payment & Reimbursement ─── */
+  paid_by?: PaidBy | string | null;
+  reimbursement_status?: ReimbursementStatus | string | null;
+  needs_reimbursement?: boolean | null;
+
+  /* ─── Approval Workflow ─── */
+  approval_status?: ApprovalStatus | string | null;
+
   is_deleted?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -74,6 +88,9 @@ export interface ReceiptRow {
   duplicate_warning?: boolean | null;
   math_mismatch_warning?: boolean | null;
   missing_bn_warning?: boolean | null;
+
+  /* ─── Optimistic UI ─── */
+  _optimistic?: boolean;
 }
 
 export interface AuditLogRow {

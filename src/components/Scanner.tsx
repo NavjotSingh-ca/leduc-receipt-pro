@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, ShieldCheck, Upload } from 'lucide-react';
+import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, Upload } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 import { scanReceipt } from '@/app/actions/scan-receipt';
 import { generateDuplicateHash } from '@/lib/hash';
@@ -10,7 +11,7 @@ import { supabase } from '@/lib/supabase';
 import ManualCropper from './scanner/ManualCropper';
 import DuplicateModal from './scanner/DuplicateModal';
 import ScannerForm from './scanner/ScannerForm';
-import type { CropRect, ReceiptForm, ReceiptRow, ScannerProps } from './scanner/types';
+import type { ReceiptForm, ReceiptRow, ScannerProps } from './scanner/types';
 import { createBlankReceiptForm } from './scanner/types';
 
 type DuplicateCandidate = ReceiptRow | null;
@@ -45,6 +46,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -60,10 +62,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       if (!active) return;
 
       if (error) {
-        setNotice({
-          tone: 'error',
-          message: 'Could not load business units.',
-        });
+        setNotice({ tone: 'error', message: 'Could not load business units.' });
       } else {
         setBusinessUnits((data ?? []) as { id: string; name: string }[]);
       }
@@ -79,14 +78,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   }, []);
 
   const canProcess = useMemo(() => Boolean(imageSrc) && !processingAI, [imageSrc, processingAI]);
-  const canSave = useMemo(() => Boolean(imageSrc) && !saving && !processingAI, [imageSrc, saving, processingAI]);
 
   function showNotice(tone: NoticeTone, message: string) {
     setNotice({ tone, message });
-    window.clearTimeout((showNotice as unknown as { timer?: number }).timer);
-    (showNotice as unknown as { timer?: number }).timer = window.setTimeout(() => {
-      setNotice(null);
-    }, 4000);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
   }
 
   function resetScanner() {
@@ -98,12 +94,8 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setPendingSave(false);
     setHasAnalyzed(false);
 
-    if (cameraInputRef.current) {
-      cameraInputRef.current.value = '';
-    }
-    if (galleryInputRef.current) {
-      galleryInputRef.current.value = '';
-    }
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    if (galleryInputRef.current) galleryInputRef.current.value = '';
   }
 
   async function readFileAsDataUrl(file: File): Promise<string> {
@@ -141,52 +133,13 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     canvas.height = height;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Canvas is not available.');
-    }
+    if (!ctx) throw new Error('Canvas is not available.');
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, width, height);
 
     return canvas.toDataURL(outputMimeType, JPEG_QUALITY);
-  }
-
-  async function cropImageToDataUrl(src: string, crop: CropRect): Promise<string> {
-    const img = await loadImage(src);
-
-    const naturalWidth = img.naturalWidth || img.width;
-    const naturalHeight = img.naturalHeight || img.height;
-
-    const safeX = Math.max(0, Math.min(crop.x, naturalWidth - 1));
-    const safeY = Math.max(0, Math.min(crop.y, naturalHeight - 1));
-    const safeWidth = Math.max(1, Math.min(crop.width, naturalWidth - safeX));
-    const safeHeight = Math.max(1, Math.min(crop.height, naturalHeight - safeY));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(safeWidth);
-    canvas.height = Math.round(safeHeight);
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Canvas is not available.');
-    }
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(
-      img,
-      safeX,
-      safeY,
-      safeWidth,
-      safeHeight,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    );
-
-    return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
   }
 
   function normalizeFileName(name: string) {
@@ -198,11 +151,9 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     const mime = meta.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
-
     for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i);
     }
-
     return new Blob([bytes], { type: mime });
   }
 
@@ -210,11 +161,9 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     const [, base64] = dataUrl.split(',');
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
-
     for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i);
     }
-
     const hashBuffer = await crypto.subtle.digest('SHA-256', bytes.buffer);
     return Array.from(new Uint8Array(hashBuffer))
       .map((b) => b.toString(16).padStart(2, '0'))
@@ -256,11 +205,15 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       job_code: receiptForm.job_code.trim() || null,
       vehicle_id: receiptForm.vehicle_id.trim() || null,
       line_items: receiptForm.line_items ?? [],
+      /* ─── Suite II: Payment Context ─── */
+      paid_by: receiptForm.paid_by || null,
+      reimbursement_status: receiptForm.paid_by === 'employee_cash' ? 'pending' : null,
+      needs_reimbursement: receiptForm.paid_by === 'employee_cash',
+      approval_status: 'submitted',
       updated_at: now,
       created_at: now,
     };
   }
-
 
   async function findDuplicateCandidate(receiptForm: ReceiptForm, integrityHash: string): Promise<ReceiptRow | null> {
     const duplicateHash = await generateDuplicateHash(
@@ -277,14 +230,12 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
 
     return (data as ReceiptRow | null) ?? null;
   }
 
-  function mergeScanData(result: any) {
+  function mergeScanData(result: Record<string, unknown>) {
     const businessNumber = String(result.business_number ?? '').trim();
     const paymentMethod = String(result.payment_method ?? formData.payment_method ?? 'Unknown').trim();
 
@@ -294,6 +245,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     const pstAmount = Number(result.pst_amount ?? 0);
 
     const confidenceScore = Number(result.confidence_score ?? 0);
+    const detectedCurrency = String(result.currency ?? 'CAD').toUpperCase();
 
     const missingBnWarning = businessNumber.length === 0;
     const mathMismatchWarning =
@@ -316,6 +268,19 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       ),
     );
 
+    const lineItemsRaw = result.line_items;
+    const lineItems = Array.isArray(lineItemsRaw)
+      ? lineItemsRaw.map((item: Record<string, unknown>) => ({
+          description: String(item.description ?? ''),
+          quantity: Number(item.quantity ?? 1),
+          unit_price: Number(item.unit_price ?? item.price ?? 0),
+          tax_rate: Number(item.tax_rate ?? 0),
+          tax_amount: Number(item.tax_amount ?? 0),
+          category: String(item.category ?? ''),
+          line_total: Number(item.line_total ?? 0),
+        }))
+      : formData.line_items;
+
     setFormData((prev) => ({
       ...prev,
       vendor_name: String(result.vendor_name ?? ''),
@@ -330,14 +295,14 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       payment_method: paymentMethod || 'Unknown',
       payment_reference: prev.payment_reference,
       card_last_four: String(result.card_last_four ?? ''),
-      category: String(result.category ?? prev.category ?? 'General Expense'),
+      category: String(result.category ?? prev.category ?? 'Office/Admin'),
       notes: String(result.notes ?? ''),
-      currency: 'CAD',
+      currency: detectedCurrency,
       confidence_score: confidenceScore,
       cra_readiness_score: readinessScore,
       thermal_warning: Boolean(result.thermal_warning),
       document_type: 'receipt',
-      duplicate_hash: '', // Handled upstream or during save. ScannerForm uses formData state.
+      duplicate_hash: '',
       math_mismatch_warning: mathMismatchWarning,
       missing_bn_warning: missingBnWarning,
       capture_source: prev.capture_source,
@@ -346,7 +311,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       job_code: prev.job_code,
       vehicle_id: prev.vehicle_id,
       business_unit_id: prev.business_unit_id,
-      line_items: Array.isArray(result.line_items) ? result.line_items : prev.line_items,
+      paid_by: prev.paid_by,
+      reimbursement_status: prev.reimbursement_status,
+      approval_status: prev.approval_status,
+      exchange_rate: detectedCurrency !== 'CAD' ? prev.exchange_rate : 1.0,
+      line_items: lineItems,
     }));
   }
 
@@ -373,20 +342,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     }
   }
 
-  async function onCrop(crop: CropRect) {
-    if (!imageSrc) return;
-
-    try {
-      const cropped = await cropImageToDataUrl(imageSrc, crop);
-      const resized = await resizeTo2000px(cropped, 'image/jpeg');
-      setImageSrc(resized);
-      setShowCropper(false);
-      showNotice('success', 'Crop applied. Ready for AI processing.');
-    } catch (error) {
-      showNotice('error', error instanceof Error ? error.message : 'Failed to crop image.');
-    }
-  }
-
   async function onApplyCroppedImage(cropped: string) {
     try {
       const resized = await resizeTo2000px(cropped, 'image/jpeg');
@@ -408,22 +363,18 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setNotice(null);
 
     try {
-      console.log('[Scanner.tsx] Calling scanReceipt...', { imageSrcLength: imageSrc.length });
       const result = await scanReceipt(imageSrc);
-      console.log('[Scanner.tsx] scanReceipt result:', result);
 
       if (!result.success) {
-        alert(`AI Error: ${result.error}`);
         showNotice('error', result.error);
         return;
       }
 
-      mergeScanData(result.data);
+      mergeScanData(result.data as unknown as Record<string, unknown>);
       setHasAnalyzed(true);
       showNotice('success', 'Receipt processed successfully. Please review the details below.');
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'AI processing failed.';
-      alert(`System Error: ${msg}`);
       showNotice('error', msg);
     } finally {
       setProcessingAI(false);
@@ -454,10 +405,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
       if (!skipDuplicateCheck) {
         const duplicate = await findDuplicateCandidate(
-          {
-            ...formData,
-            duplicate_hash: duplicateHash,
-          },
+          { ...formData, duplicate_hash: duplicateHash },
           integrityHash,
         );
 
@@ -482,32 +430,21 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
           upsert: false,
         });
 
-      if (uploadError) {
-        throw new Error(uploadError.message);
-      }
+      if (uploadError) throw new Error(uploadError.message);
 
       const {
         data: { publicUrl },
       } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
 
       const payload = toDbPayload(
-        {
-          ...formData,
-          duplicate_hash: duplicateHash,
-          duplicate_warning: false,
-        },
+        { ...formData, duplicate_hash: duplicateHash, duplicate_warning: false },
         publicUrl,
         integrityHash,
       );
 
-      console.log('[Scanner.tsx] performSave generated payload:', payload);
-
       const { error: insertError } = await supabase.from('receipts').insert(payload);
 
-      if (insertError) {
-        console.error('[Scanner.tsx] Supabase insertion error:', insertError);
-        throw new Error(insertError.message);
-      }
+      if (insertError) throw new Error(insertError.message);
 
       await supabase.from('audit_logs').insert({
         user_id: user?.id ?? 'system',
@@ -523,8 +460,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       showNotice('success', 'Receipt saved successfully.');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to save receipt.';
-      console.error('[Scanner.tsx] performSave error:', errorMsg);
-      alert(`Save failed: ${errorMsg}`);
       showNotice('error', errorMsg);
     } finally {
       setSaving(false);
@@ -603,18 +538,22 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
                 <h3 className="text-base font-bold text-text-primary">Capture a receipt</h3>
                 <p className="mt-2 text-sm text-text-secondary">
-                  Images are resized to 2000px before AI processing for consistent OCR quality.
+                  Images are resized to 1600px before AI processing for consistent OCR quality.
                 </p>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  <button
+                  {/* Haptic Scan Button with Spring physics */}
+                  <motion.button
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim"
+                    whileTap={{ scale: 0.92 }}
+                    whileHover={{ scale: 1.03 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3 text-sm font-semibold text-obsidian shadow-lg shadow-champagne/20 transition hover:bg-champagne-dim"
                   >
                     <Camera className="h-4 w-4" />
                     Use camera
-                  </button>
+                  </motion.button>
 
                   <button
                     type="button"
@@ -668,16 +607,17 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                   </div>
 
                   <div className="flex flex-col gap-3 sm:flex-row">
-                    <button
+                    <motion.button
                       type="button"
                       onClick={onProcessAI}
                       disabled={!canProcess}
+                      whileTap={{ scale: 0.95 }}
+                      transition={{ type: 'spring', stiffness: 260, damping: 20 }}
                       className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3.5 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {processingAI ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
                       {processingAI ? 'Processing with AI…' : 'Process with AI'}
-                    </button>
-                    {/* The top Save button has been removed to enforce the top-down logical flow (Analyze -> Verify -> Save) */}
+                    </motion.button>
                   </div>
 
                   <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] px-4 py-3 text-xs text-champagne-dim">

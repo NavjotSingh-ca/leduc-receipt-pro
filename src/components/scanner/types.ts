@@ -2,6 +2,9 @@ export type CaptureSource = 'camera' | 'upload' | 'email' | 'bulk-import' | 'acc
 export type UsageType = 'business' | 'personal' | 'mixed';
 export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'unknown';
 export type SourceFileType = 'image' | 'pdf' | 'heic' | 'png' | 'jpg' | 'jpeg' | '';
+export type PaidBy = 'company_card' | 'employee_cash' | '';
+export type ReimbursementStatus = 'pending' | 'approved' | 'rejected' | '';
+export type ApprovalStatus = 'submitted' | 'approved' | 'rejected' | '';
 
 export type ToastType = 'success' | 'error' | 'info';
 
@@ -58,6 +61,7 @@ export interface ReceiptForm {
   duplicate_hash: string;
   math_mismatch_warning: boolean;
   missing_bn_warning: boolean;
+  needs_reimbursement?: boolean;
 
   capture_source: CaptureSource;
   usage_type: UsageType;
@@ -66,6 +70,14 @@ export interface ReceiptForm {
   job_code: string;
   vehicle_id: string;
   business_unit_id: string;
+
+  /* ─── Payment Context (Suite II) ─── */
+  paid_by: PaidBy;
+  reimbursement_status: ReimbursementStatus;
+  approval_status: ApprovalStatus;
+
+  /* ─── Multi-Currency ─── */
+  exchange_rate: number;
 
   line_items: ReceiptLineItem[];
 }
@@ -116,6 +128,12 @@ export interface ReceiptRow {
 
   line_items?: ReceiptLineItem[] | null;
 
+  /* ─── Payment & Reimbursement ─── */
+  paid_by?: PaidBy | string | null;
+  reimbursement_status?: ReimbursementStatus | string | null;
+  needs_reimbursement?: boolean | null;
+  approval_status?: ApprovalStatus | string | null;
+
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -149,17 +167,19 @@ export interface DuplicateModalProps {
   onContinue: () => void;
 }
 
+/* ─── Alberta Construction Taxonomy ─── */
 export const CATEGORIES = [
-  'Office Supplies',
-  'Meals & Entertainment',
-  'Travel',
-  'Fuel',
-  'Professional Fees',
-  'Supplies',
-  'Software & Subscriptions',
-  'Utilities',
-  'General Expense',
+  'Job Materials',
+  'Subcontractors',
+  'Site Fuel',
+  'Equipment Rental',
+  'Small Tools',
+  'Vehicle Maintenance',
+  'Travel/Lodging',
+  'Office/Admin',
 ] as const;
+
+export type CategoryType = (typeof CATEGORIES)[number];
 
 export const PAYMENT_METHODS = [
   'Visa',
@@ -210,7 +230,7 @@ export function createBlankReceiptForm(): ReceiptForm {
     payment_reference: '',
     card_last_four: '',
 
-    category: 'General Expense',
+    category: 'Office/Admin',
     notes: '',
     currency: DEFAULT_CURRENCY,
 
@@ -232,6 +252,12 @@ export function createBlankReceiptForm(): ReceiptForm {
     job_code: '',
     vehicle_id: '',
     business_unit_id: '',
+
+    paid_by: 'company_card',
+    reimbursement_status: '',
+    approval_status: 'submitted',
+
+    exchange_rate: 1.0,
 
     line_items: [],
   };

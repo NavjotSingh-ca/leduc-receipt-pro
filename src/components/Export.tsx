@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import type { ReceiptRow } from '@/lib/types';
+import { toNumber } from '@/lib/ui-utils';
 
 interface ExportProps {
   receipts: ReceiptRow[];
@@ -23,11 +24,6 @@ const currencyFormatter = new Intl.NumberFormat('en-CA', {
   currency: 'CAD',
   maximumFractionDigits: 2,
 });
-
-function toNumber(value: unknown): number {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
 
 function getVendor(r: ReceiptRow): string {
   return String(r.vendor_name ?? 'Unknown Vendor').trim() || 'Unknown Vendor';
@@ -97,7 +93,8 @@ function buildCSV(receipts: ReceiptRow[]): string {
     'Date', 'Vendor', 'Vendor Address', 'Category', 'Payment Method',
     'Card Last 4', 'Currency', 'Subtotal', 'GST', 'PST', 'Total',
     'Business Number', 'Business Use %', 'Job Code', 'Vehicle ID',
-    'Notes', 'Line Items', 'Integrity Hash', 'Image URL',
+    'Notes', 'Paid By', 'Reimbursement Status', 'Approval Status',
+    'Line Items', 'Integrity Hash', 'Image URL',
   ];
 
   const rows = receipts.map((r) => [
@@ -117,6 +114,9 @@ function buildCSV(receipts: ReceiptRow[]): string {
     String(r.job_code ?? ''),
     String(r.vehicle_id ?? ''),
     String(r.notes ?? ''),
+    String(r.paid_by ?? ''),
+    String(r.reimbursement_status ?? ''),
+    String(r.approval_status ?? ''),
     stringifyLineItems(r.line_items),
     getHash(r),
     getImageUrl(r),
@@ -126,7 +126,7 @@ function buildCSV(receipts: ReceiptRow[]): string {
 }
 
 function buildLogbook(receipts: ReceiptRow[]): string {
-  const headers = ['Filename', 'Date', 'Operator', 'SHA-256 Hash'];
+  const headers = ['Filename', 'Date', 'Vendor', 'Total', 'SHA-256 Hash', 'Approval Status'];
 
   const rows = receipts
     .filter((r) => getImageUrl(r) || getHash(r))
@@ -140,7 +140,14 @@ function buildLogbook(receipts: ReceiptRow[]): string {
         return `${r.id}.jpg`;
       })();
 
-      return [filename, getDate(r), 'Operator', getHash(r)];
+      return [
+        filename,
+        getDate(r),
+        getVendor(r),
+        getTotal(r).toFixed(2),
+        getHash(r),
+        String(r.approval_status ?? 'submitted'),
+      ];
     });
 
   return '\ufeff' + [headers.map(csvEscape).join(','), ...rows.map((row) => row.map(csvEscape).join(','))].join('\n');
@@ -160,7 +167,10 @@ export default function Export({ receipts }: ExportProps) {
     const total = filteredReceipts.reduce((sum, r) => sum + getTotal(r), 0);
     const gst = filteredReceipts.reduce((sum, r) => sum + getGST(r), 0);
     const pst = filteredReceipts.reduce((sum, r) => sum + getPST(r), 0);
-    return { total, gst, pst, count: filteredReceipts.length };
+    const reimbursementPending = filteredReceipts.filter(
+      (r) => r.paid_by === 'employee_cash' && r.reimbursement_status === 'pending'
+    ).length;
+    return { total, gst, pst, count: filteredReceipts.length, reimbursementPending };
   }, [filteredReceipts]);
 
   async function downloadCSV() {
@@ -195,23 +205,23 @@ export default function Export({ receipts }: ExportProps) {
           '',
           'Compliance notes:',
           '- This package is prepared for CRA recordkeeping and audit support.',
-          '- Receipts.csv contains the transaction register with GST/PST and metadata.',
-          '- LOGBOOK.csv records filename, date, operator, and SHA-256 hash.',
-          '- The images folder contains source receipt images for the selected period.',
+          '- Receipts.csv contains the transaction register with GST/PST, payment context, and metadata.',
+          '- LOGBOOK.csv records filename, date, vendor, total, SHA-256 hash, and approval status.',
+          '- The receipt_proofs/ folder contains source receipt images for the selected period.',
           '- SHA-256 hashes help verify document integrity under IC05-1R1-style controls.',
+          '',
+          'Chain of Custody:',
+          '- Each receipt image filename maps to a SHA-256 hash in LOGBOOK.csv.',
+          '- To verify integrity: recompute the SHA-256 of each image file and compare with the logbook.',
           '',
           'Retention policy:',
           '- Keep original records for at least 6 years.',
           '- Do not delete source files while an audit hold is active.',
           '- Preserve exported packages together with the original records.',
-          '',
-          'Verification guidance:',
-          '- Recompute SHA-256 hashes to confirm source image integrity.',
-          '- Ensure receipts remain readable, complete, and retrievable.',
         ].join('\n')
       );
 
-      const imageFolder = zip.folder('images');
+      const imageFolder = zip.folder('receipt_proofs');
       if (imageFolder) {
         await Promise.allSettled(
           filteredReceipts.map(async (r) => {
@@ -293,7 +303,7 @@ export default function Export({ receipts }: ExportProps) {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-text-primary">Download CSV Spreadsheet</p>
               <p className="mt-1 text-sm leading-relaxed text-text-secondary">
-                Includes date, vendor, taxes, job codes, line items, integrity hash, and image link.
+                Includes date, vendor, taxes, payment context, reimbursement status, job codes, line items, and integrity hash.
               </p>
             </div>
             <Download className="mt-1 h-4 w-4 flex-shrink-0 text-text-muted" />
@@ -313,7 +323,7 @@ export default function Export({ receipts }: ExportProps) {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-text-primary">Download CRA Audit Package (ZIP)</p>
               <p className="mt-1 text-sm leading-relaxed text-text-secondary">
-                Contains receipts.csv, LOGBOOK.csv, README.txt, and the images/ folder for the selected period.
+                Contains receipts.csv, LOGBOOK.csv, README.txt, and the receipt_proofs/ folder with source images for chain-of-custody.
               </p>
             </div>
             <Download className="mt-1 h-4 w-4 flex-shrink-0 text-text-muted" />
@@ -321,7 +331,7 @@ export default function Export({ receipts }: ExportProps) {
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">Total</p>
           <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{currencyFormatter.format(totals.total)}</p>
@@ -333,6 +343,10 @@ export default function Export({ receipts }: ExportProps) {
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">PST</p>
           <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{currencyFormatter.format(totals.pst)}</p>
+        </div>
+        <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">Pending Claims</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-amber-400">{totals.reimbursementPending}</p>
         </div>
       </div>
 
@@ -359,8 +373,8 @@ export default function Export({ receipts }: ExportProps) {
           <div className="min-w-0">
             <p className="text-sm font-bold text-text-primary">Audit package contents</p>
             <p className="mt-1 text-sm leading-relaxed text-text-secondary">
-              LOGBOOK.csv includes the filename, date, operator, and SHA-256 hash for each image so the package can be
-              checked against the source records later.
+              LOGBOOK.csv includes the filename, date, vendor, total, SHA-256 hash, and approval status for each image so the package can be
+              verified against the source records for legal chain-of-custody.
             </p>
             <div className="mt-3 flex items-center gap-2 text-xs text-text-muted">
               <Fingerprint className="h-4 w-4 text-emerald-light" />

@@ -5,7 +5,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export interface ReceiptLineItem {
   description: string;
   quantity: number;
-  price: number;
+  unit_price: number;
+  tax_amount: number;
+  line_total: number;
 }
 
 export interface ScannedReceiptData {
@@ -31,6 +33,7 @@ export interface ScannedReceiptData {
   duplicate_hash: string;
   math_mismatch_warning: boolean;
   missing_bn_warning: boolean;
+  currency: string;
   line_items: ReceiptLineItem[];
 }
 
@@ -48,30 +51,29 @@ export type ScanReceiptResult = ScanSuccess | ScanFailure;
 
 const CURRENT_YEAR = 2026;
 
+/* ─── Alberta Construction Taxonomy ─── */
 const VALID_CATEGORIES = [
-  'Office Supplies',
-  'Meals & Entertainment',
-  'Travel',
-  'Fuel',
-  'Professional Fees',
-  'Supplies',
-  'Software & Subscriptions',
-  'Utilities',
-  'General Expense',
+  'Job Materials',
+  'Subcontractors',
+  'Site Fuel',
+  'Equipment Rental',
+  'Small Tools',
+  'Vehicle Maintenance',
+  'Travel/Lodging',
+  'Office/Admin',
 ] as const;
 
 type ValidCategory = (typeof VALID_CATEGORIES)[number];
 
 const SMART_PURPOSE: Record<ValidCategory, string> = {
-  Fuel: 'Fuel purchased for company vehicle used in business travel',
-  'Meals & Entertainment': 'Business meal or client entertainment expense',
-  'Office Supplies': 'Office supplies purchased for business operations',
-  Travel: 'Business travel expense incurred for work-related activity',
-  'Professional Fees': 'Professional service expense supporting business operations',
-  Supplies: 'Business supplies purchased for operational use',
-  'Software & Subscriptions': 'Software or subscription purchased for business productivity',
-  Utilities: 'Utility expense related to business operations',
-  'General Expense': 'General business operating expense with supporting receipt',
+  'Job Materials': 'Construction materials purchased for active job site',
+  'Subcontractors': 'Payment to subcontractor for contracted work on job site',
+  'Site Fuel': 'Fuel purchased for equipment or vehicles used on construction site',
+  'Equipment Rental': 'Equipment rental for construction project operations',
+  'Small Tools': 'Small tools and consumables purchased for field operations',
+  'Vehicle Maintenance': 'Vehicle maintenance and repair for company fleet',
+  'Travel/Lodging': 'Business travel and lodging expense for remote job site work',
+  'Office/Admin': 'Office and administrative expense supporting business operations',
 };
 
 const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
@@ -91,11 +93,11 @@ const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
 };
 
 function buildPrompt(): string {
-  return `Return the receipt data as a single JSON object (NO markdown fences or other text) exactly matching this schema:
+  return `You are a Canadian receipt OCR expert. Analyze this receipt image and return a single JSON object (NO markdown fences, NO commentary) matching this exact schema:
 {
   "vendor_name": "string",
-  "vendor_address": "string",
-  "vendor_tax_number": "string (e.g., 123456789RT0001, or empty if none)",
+  "vendor_address": "string (full address including city, province, postal code)",
+  "vendor_tax_number": "string (GST/BN number e.g. 123456789RT0001, or empty string if none found)",
   "total_amount": 0.00,
   "subtotal": 0.00,
   "tax_amount": 0.00,
@@ -103,14 +105,28 @@ function buildPrompt(): string {
   "transaction_date": "YYYY-MM-DD",
   "transaction_time": "HH:MM",
   "payment_method": "Visa | Mastercard | Amex | Debit | Cash | E-Transfer | Cheque | Unknown",
-  "card_last_four": "string (4 digits)",
+  "card_last_four": "string (last 4 digits if visible)",
   "category": "${VALID_CATEGORIES.join(' | ')}",
-  "confidence_score": 0 (0-100),
-  "cra_readiness_score": 0 (0-100),
-  "thermal_warning": false,
-  "line_items": [{"description": "string", "quantity": 1, "unit_price": 0.00, "tax_amount": 0.00, "line_total": 0.00}]
+  "currency": "CAD | USD | other",
+  "confidence_score": 0 (your confidence 0-100 in extraction accuracy),
+  "thermal_warning": false (true if receipt appears faded/thermal),
+  "line_items": [
+    {
+      "description": "string",
+      "quantity": 1,
+      "unit_price": 0.00,
+      "tax_amount": 0.00,
+      "line_total": 0.00
+    }
+  ]
 }
-Parse the image content logically. Make sure the output is pure JSON.`;
+
+Rules:
+- Extract EVERY line item visible on the receipt with description, quantity, unit_price, and line_total
+- For Alberta vendors (no PST), set pst_amount to 0
+- If the business number format matches ###-###-### RT ####, normalize to 9-digit+RT0001
+- Dates must be YYYY-MM-DD. If year is ambiguous, assume ${CURRENT_YEAR}
+- Return ONLY the JSON object, no other text`;
 }
 
 function prepareImage(raw: string): { data: string; mimeType: string } {
@@ -132,12 +148,10 @@ function prepareImage(raw: string): { data: string; mimeType: string } {
 function parseSafely(raw: string): Record<string, unknown> {
   const cleanFences = raw.replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '').trim();
 
-  // Step A: Parse directly
   try {
     return JSON.parse(cleanFences);
-  } catch (err) {}
+  } catch { /* continue */ }
 
-  // Step B: Regex bracket extraction
   const start = cleanFences.indexOf('{');
   const end = cleanFences.lastIndexOf('}');
   
@@ -145,22 +159,19 @@ function parseSafely(raw: string): Record<string, unknown> {
     let extracted = cleanFences.slice(start, end + 1);
     try {
       return JSON.parse(extracted);
-    } catch (err) {}
+    } catch { /* continue */ }
 
-    // Step C.1: Fix trailing commas
     extracted = extracted.replace(/,\s*([}\]])/g, '$1');
     try {
       return JSON.parse(extracted);
-    } catch (err) {}
+    } catch { /* continue */ }
 
-    // Step C.2: Strip unescaped newlines which break JSON strings
     extracted = extracted.replace(/\r?\n|\r/g, ' ');
     try {
       return JSON.parse(extracted);
-    } catch (err) {}
+    } catch { /* continue */ }
   }
 
-  // Step D: We failed. Pass back the first 100 chars to debug the hallucination.
   const preview = raw.length > 150 ? raw.slice(0, 150) + '...' : raw;
   throw new Error(`[Debug: ${preview}]`);
 }
@@ -197,18 +208,8 @@ function normalizeDate(raw: string): string {
   }
 
   const MONTH: Record<string, string> = {
-    jan: '01',
-    feb: '02',
-    mar: '03',
-    apr: '04',
-    may: '05',
-    jun: '06',
-    jul: '07',
-    aug: '08',
-    sep: '09',
-    oct: '10',
-    nov: '11',
-    dec: '12',
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
   };
 
   const written = s.match(/^([a-z]{3,9})\.?\s+(\d{1,2})(?:[,\s]+(\d{4}))?$/i);
@@ -225,7 +226,6 @@ function normalizeDate(raw: string): string {
 
 function normalizeTime(raw: string): string {
   const s = raw.trim();
-
   if (!s) return '';
 
   const t24 = s.match(/^(\d{1,2}):(\d{2})$/);
@@ -354,15 +354,13 @@ function normalizeLineItems(value: unknown): ReceiptLineItem[] {
       const obj = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
       const description = toStr(obj.description);
       const quantity = toNum(obj.quantity || 1);
-      const price = toNum(obj.price);
+      const unit_price = toNum(obj.unit_price ?? obj.price);
+      const tax_amount = toNum(obj.tax_amount);
+      const line_total = toNum(obj.line_total) || Math.round(quantity * unit_price * 100) / 100;
 
-      return {
-        description,
-        quantity: quantity > 0 ? quantity : 1,
-        price,
-      };
+      return { description, quantity: quantity > 0 ? quantity : 1, unit_price, tax_amount, line_total };
     })
-    .filter((item) => item.description && item.price >= 0);
+    .filter((item) => item.description && item.unit_price >= 0);
 }
 
 function computeReadinessScore(input: {
@@ -432,7 +430,6 @@ function computeConfidenceScore(options: {
 function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const vendor_name = toStr(raw.vendor_name) || 'Unknown Vendor';
   const vendor_address = toStr(raw.vendor_address);
-  // Support both property names for robustness from AI
   const business_number_raw = toStr(raw.vendor_tax_number || raw.business_number).replace(/[\s-]/g, '');
   const hasBNPattern = /^\d{9}RT0001$/i.test(business_number_raw);
   const business_number = hasBNPattern ? business_number_raw.toUpperCase() : business_number_raw;
@@ -440,7 +437,7 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const rawCategory = toStr(raw.category);
   const category: ValidCategory = VALID_CATEGORIES.includes(rawCategory as ValidCategory)
     ? (rawCategory as ValidCategory)
-    : 'General Expense';
+    : 'Office/Admin';
 
   const rawNotes = toStr(raw.notes);
   const notes = rawNotes.split(/\s+/).filter(Boolean).length >= 8 ? rawNotes : SMART_PURPOSE[category];
@@ -461,18 +458,15 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const payment_reference = normalizePaymentReference(toStr(raw.payment_reference));
 
   const payment_method_input = toStr(raw.payment_method);
-  const payment_method = (
+  const payment_method =
     ['Visa', 'Mastercard', 'Amex', 'Debit', 'Cash', 'E-Transfer', 'Cheque'].includes(payment_method_input)
       ? payment_method_input
-      : 'Unknown'
-  ) as ScannedReceiptData['payment_method'];
+      : 'Unknown';
 
   const thermal_warning = Boolean(raw.thermal_warning);
   const document_type_raw = toStr(raw.document_type).toLowerCase();
   const document_type: ScannedReceiptData['document_type'] =
-    document_type_raw === 'receipt' ||
-    document_type_raw === 'invoice' ||
-    document_type_raw === 'statement'
+    document_type_raw === 'receipt' || document_type_raw === 'invoice' || document_type_raw === 'statement'
       ? (document_type_raw as ScannedReceiptData['document_type'])
       : 'unknown';
 
@@ -480,6 +474,8 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const line_items = normalizeLineItems(raw.line_items);
   const math_mismatch_warning = Math.abs((subtotal + tax_amount + pst_amount) - total_amount) > 0.02;
   const missing_bn_warning = !business_number && tax_amount > 0;
+
+  const currency = toStr(raw.currency) || 'CAD';
 
   const confidence_score = computeConfidenceScore({
     modelConfidence: toNum(raw.confidence_score),
@@ -529,6 +525,7 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     payment_reference,
     category,
     notes,
+    currency,
     confidence_score,
     cra_readiness_score,
     thermal_warning,
@@ -593,7 +590,7 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
       generationConfig: {
         temperature: 0.05,
         topP: 0.8,
-        maxOutputTokens: 2200,
+        maxOutputTokens: 3000,
         responseMimeType: 'application/json',
       },
     });
@@ -621,7 +618,6 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     try {
       parsed = parseSafely(rawText);
     } catch (err) {
-      console.error('[scan-receipt.ts] JSON parse failed via parseSafely. Raw:', rawText);
       const debugMsg = err instanceof Error ? err.message : '';
       return {
         success: false,
@@ -639,8 +635,7 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     if (is429RateLimitError(msg)) {
       return {
         success: false,
-        error:
-          'The AI scanner is temporarily rate-limited right now. Please wait a moment and try again.',
+        error: 'The AI scanner is temporarily rate-limited right now. Please wait a moment and try again.',
       };
     }
 
@@ -664,8 +659,6 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
         error: 'Receipt scan timed out. Please try again with a clearer or smaller image.',
       };
     }
-
-    console.error('[scanReceipt] Unhandled error:', msg);
 
     return {
       success: false,

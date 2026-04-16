@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, FileText, Hash, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2 } from 'lucide-react';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
 import {
@@ -10,6 +10,7 @@ import {
   USAGE_TYPES,
   createBlankReceiptLineItem,
 } from './types';
+import { shouldGlow, computeLiveCRAScore } from '@/lib/ui-utils';
 
 const inputCls =
   'w-full rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15';
@@ -37,6 +38,14 @@ function updateComputedLineTotal(item: ReceiptLineItem): ReceiptLineItem {
   };
 }
 
+/* ─── CRA Score Color ─── */
+
+function craScoreColor(score: number): string {
+  if (score >= 80) return 'bg-emerald-500';
+  if (score >= 60) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
 export default function ScannerForm({
   formData,
   setFormData,
@@ -55,10 +64,34 @@ export default function ScannerForm({
     setLastCheckGroup(currentCheckGroup);
     setIsConfirmed(false);
   }
+
   const missingBN = !String(formData.business_number ?? '').trim() || Boolean(formData.missing_bn_warning);
   const mathMismatch = Boolean(formData.math_mismatch_warning);
   const thermalWarning = Boolean(formData.thermal_warning);
-  const lowReadiness = safeNumber(formData.cra_readiness_score) < 70;
+
+  /* ─── Real-Time CRA Score ─── */
+  const liveCRAScore = useMemo(() => computeLiveCRAScore({
+    vendor_name: formData.vendor_name,
+    vendor_address: formData.vendor_address,
+    business_number: formData.business_number,
+    transaction_date: formData.transaction_date,
+    total_amount: safeNumber(formData.total_amount),
+    subtotal: safeNumber(formData.subtotal),
+    tax_amount: safeNumber(formData.tax_amount),
+    pst_amount: safeNumber(formData.pst_amount),
+    payment_method: formData.payment_method,
+    notes: formData.notes,
+    line_items: lineItems,
+  }), [
+    formData.vendor_name, formData.vendor_address, formData.business_number,
+    formData.transaction_date, formData.total_amount, formData.subtotal,
+    formData.tax_amount, formData.pst_amount, formData.payment_method,
+    formData.notes, lineItems,
+  ]);
+
+  const lowReadiness = liveCRAScore < 70;
+  const glowActive = shouldGlow(safeNumber(formData.confidence_score));
+  const isNonCAD = formData.currency && formData.currency !== 'CAD';
 
   function patch<K extends keyof ReceiptForm>(key: K, value: ReceiptForm[K]) {
     setFormData({
@@ -177,7 +210,7 @@ export default function ScannerForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Vendor Name</label>
-              <input type="text" value={formData.vendor_name} onChange={(e) => patch('vendor_name', e.target.value)} className={inputCls} placeholder="Supplier name" />
+              <input type="text" value={formData.vendor_name} onChange={(e) => patch('vendor_name', e.target.value)} className={`${glowActive ? inputCls + ' self-healing-glow' : inputCls}`} placeholder="Supplier name" />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Vendor Address</label>
@@ -213,6 +246,71 @@ export default function ScannerForm({
         </div>
       </div>
 
+      {/* Card 1.5: Who Paid? (Payment Context) */}
+      <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
+        <div className="border-b border-glass-border px-5 py-3">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">Payment Context</p>
+        </div>
+        <div className="p-5">
+          <p className="mb-3 text-sm font-semibold text-text-primary">Who paid for this?</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                patch('paid_by', 'company_card');
+                patch('reimbursement_status', '' as ReceiptForm['reimbursement_status']);
+                patch('needs_reimbursement', false);
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                formData.paid_by === 'company_card'
+                  ? 'border-champagne/40 bg-champagne/[0.08]'
+                  : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <DollarSign className={`h-4 w-4 ${formData.paid_by === 'company_card' ? 'text-champagne' : 'text-text-muted'}`} />
+                <span className={`text-sm font-semibold ${formData.paid_by === 'company_card' ? 'text-champagne' : 'text-text-secondary'}`}>
+                  Company Card
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-text-muted">No reimbursement needed</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                patch('paid_by', 'employee_cash');
+                patch('reimbursement_status', 'pending' as ReceiptForm['reimbursement_status']);
+                patch('needs_reimbursement', true);
+              }}
+              className={`rounded-2xl border p-4 text-left transition ${
+                formData.paid_by === 'employee_cash'
+                  ? 'border-amber-500/40 bg-amber-500/[0.08]'
+                  : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <DollarSign className={`h-4 w-4 ${formData.paid_by === 'employee_cash' ? 'text-amber-400' : 'text-text-muted'}`} />
+                <span className={`text-sm font-semibold ${formData.paid_by === 'employee_cash' ? 'text-amber-400' : 'text-text-secondary'}`}>
+                  Employee Cash
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-text-muted">Reimbursement needed</p>
+            </button>
+          </div>
+
+          {formData.paid_by === 'employee_cash' && (
+            <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-amber-300">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span className="font-semibold">Reimbursement queued</span>
+              </div>
+              <p className="mt-1 text-xs text-amber-400/80">This receipt will appear in the Owner reimbursement queue for approval.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Card 2: Financials */}
       <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
         <div className="border-b border-glass-border px-5 py-3">
@@ -226,7 +324,7 @@ export default function ScannerForm({
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Total</label>
-              <input type="number" step="0.01" min="0" value={formData.total_amount} onChange={(e) => patchNumber('total_amount', e.target.value)} className={inputCls} />
+              <input type="number" step="0.01" min="0" value={formData.total_amount} onChange={(e) => patchNumber('total_amount', e.target.value)} className={glowActive ? inputCls + ' self-healing-glow' : inputCls} />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">GST Amount</label>
@@ -237,6 +335,17 @@ export default function ScannerForm({
               <input type="number" step="0.01" min="0" value={formData.pst_amount} onChange={(e) => patchNumber('pst_amount', e.target.value)} className={inputCls} />
             </div>
           </div>
+
+          {/* Multi-Currency Exchange Rate */}
+          {isNonCAD && (
+            <div className="mt-4 rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] p-4">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-blue-400">Non-CAD Currency Detected: {formData.currency}</p>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Exchange Rate to CAD</label>
+                <input type="number" step="0.0001" min="0" value={formData.exchange_rate} onChange={(e) => patchNumber('exchange_rate', e.target.value)} className={inputCls} placeholder="1.0000" />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -249,7 +358,7 @@ export default function ScannerForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">GST / Vendor Tax Number</label>
-              <input type="text" value={formData.business_number} onChange={(e) => patch('business_number', e.target.value.toUpperCase())} className={missingBN ? warningInputCls : inputCls} placeholder="123456789RT0001" />
+              <input type="text" value={formData.business_number} onChange={(e) => patch('business_number', e.target.value.toUpperCase())} className={glowActive ? (missingBN ? warningInputCls + ' self-healing-glow' : inputCls + ' self-healing-glow') : (missingBN ? warningInputCls : inputCls)} placeholder="123456789RT0001" />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Category</label>
@@ -286,7 +395,7 @@ export default function ScannerForm({
         </div>
       </div>
 
-      {/* High-Density Line Items */}
+      {/* High-Density Line Items (Stacked Row Format) */}
       <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface shadow-sm">
         <div className="flex items-center justify-between border-b border-glass-border px-5 py-3">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">Line Items</p>
@@ -301,10 +410,12 @@ export default function ScannerForm({
             lineItems.map((item, index) => (
               <div key={index} className="flex gap-4 px-5 py-4 transition hover:bg-surface-hover/50">
                 <div className="flex-1 space-y-2">
+                  {/* Primary Row: Description + Line Total */}
                   <div className="flex items-center gap-3">
                     <input type="text" value={item.description} onChange={(e) => updateLineItem(index, { description: e.target.value })} className="w-full min-w-0 bg-transparent text-sm font-semibold text-text-primary placeholder:text-text-muted focus:outline-none" placeholder="Item description" />
                     <div className="min-w-[70px] shrink-0 font-mono text-sm font-bold text-champagne text-right">${safeNumber(item.line_total).toFixed(2)}</div>
                   </div>
+                  {/* Secondary Row: Qty, Unit, Tax (small gray text) */}
                   <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-text-muted">
                     <div className="flex items-center gap-1.5">
                       <span>Qty:</span>
@@ -329,21 +440,37 @@ export default function ScannerForm({
         </div>
       </div>
 
-      {/* Scores */}
-      <section className="grid grid-cols-2 gap-4">
-        <div className="rounded-3xl border border-glass-border bg-surface-raised px-5 py-4">
-          <div className="flex items-center gap-2 text-text-muted">
-            <Hash className="h-4 w-4" />
-            <span className="text-xs font-semibold uppercase tracking-wide">AI confidence</span>
+      {/* Real-Time Scores */}
+      <section className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-3xl border border-glass-border bg-surface-raised px-5 py-4">
+            <div className="flex items-center gap-2 text-text-muted">
+              <Hash className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-wide">AI confidence</span>
+            </div>
+            <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{safeNumber(formData.confidence_score)}</p>
           </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{safeNumber(formData.confidence_score)}</p>
+          <div className="rounded-3xl border border-glass-border bg-surface-raised px-5 py-4">
+            <div className="flex items-center gap-2 text-text-muted">
+              <FileText className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-wide">CRA readiness</span>
+            </div>
+            <p className="mt-2 text-2xl font-bold tabular-nums text-champagne">{liveCRAScore}</p>
+          </div>
         </div>
-        <div className="rounded-3xl border border-glass-border bg-surface-raised px-5 py-4">
-          <div className="flex items-center gap-2 text-text-muted">
-            <FileText className="h-4 w-4" />
-            <span className="text-xs font-semibold uppercase tracking-wide">CRA readiness</span>
+
+        {/* CRA Score Bar (Live) */}
+        <div className="rounded-2xl border border-glass-border bg-surface-raised px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">CRA Readiness</p>
+            <p className="text-xs font-bold tabular-nums text-champagne">{liveCRAScore}/100</p>
           </div>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-champagne">{safeNumber(formData.cra_readiness_score)}</p>
+          <div className="h-2 w-full rounded-full bg-obsidian overflow-hidden">
+            <div
+              className={`h-full rounded-full cra-score-bar ${craScoreColor(liveCRAScore)}`}
+              style={{ width: `${liveCRAScore}%` }}
+            />
+          </div>
         </div>
       </section>
 

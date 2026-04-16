@@ -4,8 +4,10 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
+  CheckCircle2,
   ChevronRight,
   CreditCard,
+  DollarSign,
   Edit3,
   Eye,
   Fingerprint,
@@ -17,23 +19,51 @@ import {
   Search,
   Tag,
   X,
+  XCircle,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import type { ReceiptRow } from '@/lib/types';
+import type { UserRole } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
-import { toNumber, formatCurrency, formatDate, categoryColor, confidenceTone } from '@/lib/ui-utils';
+import {
+  toNumber,
+  formatCurrency,
+  formatDate,
+  categoryColor,
+  confidenceTone,
+  approvalBadge,
+  reimbursementBadge,
+} from '@/lib/ui-utils';
 
 type HistoryProps = {
   receipts: ReceiptRow[];
   activeFilter?: string;
   onUpdate?: () => Promise<void> | void;
+  role?: UserRole;
 };
 
+/* ─── Card entrance animation (float up) ─── */
+const cardVariants = {
+  hidden: { opacity: 0, y: 18, scale: 0.97 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      delay: Math.min(i * 0.04, 0.4),
+      type: 'spring' as const,
+      stiffness: 260,
+      damping: 20,
+    },
+  }),
+};
 
 export default function History({
   receipts,
   activeFilter = 'all',
   onUpdate,
+  role = 'Owner',
 }: HistoryProps) {
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRow | null>(null);
   const [search, setSearch] = useState('');
@@ -65,6 +95,8 @@ export default function History({
             r.thermal_warning ||
             (toNumber(r.cra_readiness_score) > 0 && toNumber(r.cra_readiness_score) < 70)
         );
+      } else if (normalizedFilter === 'reimbursement') {
+        items = items.filter((r) => r.paid_by === 'employee_cash');
       } else {
         items = items.filter(
           (r) => (r.category ?? 'Uncategorized').toLowerCase() === normalizedFilter
@@ -127,6 +159,7 @@ export default function History({
           </button>
         </div>
 
+        {/* Global Search Bar */}
         <div className="rounded-2xl border border-glass-border bg-surface p-3 shadow-sm">
           <div className="flex items-center gap-3 rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5">
             <Search className="h-4 w-4 text-text-muted" />
@@ -134,9 +167,14 @@ export default function History({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search vendor, date, BN, amount, category..."
+              placeholder="Search vendor, date, BN, job code, notes..."
               className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
             />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="text-text-muted hover:text-text-secondary">
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -151,7 +189,7 @@ export default function History({
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredReceipts.map((receipt) => {
+            {filteredReceipts.map((receipt, index) => {
               const tone = confidenceTone(toNumber(receipt.confidence_score));
               const vendor = receipt.vendor_name ?? 'Unknown Vendor';
               const total = toNumber(receipt.total_amount);
@@ -159,13 +197,21 @@ export default function History({
               const cardLastFour = receipt.card_last_four ?? '';
               const hasHash = Boolean(receipt.integrity_hash);
               const missingBN = !String(receipt.vendor_tax_number ?? '').trim();
+              const approval = approvalBadge(receipt.approval_status);
+              const isOptimistic = Boolean((receipt as ReceiptRow & { _optimistic?: boolean })._optimistic);
+              const needsReimburse = receipt.paid_by === 'employee_cash';
+              const reimburse = needsReimburse ? reimbursementBadge(receipt.reimbursement_status) : null;
 
               return (
-                <button
+                <motion.button
                   key={receipt.id}
+                  custom={index}
+                  variants={cardVariants}
+                  initial="hidden"
+                  animate="visible"
                   type="button"
                   onClick={() => setSelectedReceipt(receipt)}
-                  className="w-full rounded-2xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-glass-border-hover hover:bg-surface-raised"
+                  className={`w-full rounded-2xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-glass-border-hover hover:bg-surface-raised ${isOptimistic ? 'optimistic-pulse' : ''}`}
                 >
                   <div className="flex items-start gap-3">
                     <div
@@ -190,6 +236,26 @@ export default function History({
                         >
                           {tone.label} AI
                         </span>
+
+                        {/* Approval Status Badge */}
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${approval.cls}`}>
+                          {approval.label}
+                        </span>
+
+                        {/* Reimbursement Badge */}
+                        {reimburse && (
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${reimburse.cls}`}>
+                            <DollarSign className="h-3 w-3" />
+                            {reimburse.label}
+                          </span>
+                        )}
+
+                        {isOptimistic && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-400">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Uploading
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
@@ -218,19 +284,23 @@ export default function History({
                       <ChevronRight className="h-4 w-4 text-text-muted" />
                     </div>
                   </div>
-                </button>
+                </motion.button>
               );
             })}
           </div>
         )}
       </div>
 
-      {selectedReceipt && (
-        <ReceiptDetailModal
-          receipt={selectedReceipt}
-          onClose={() => setSelectedReceipt(null)}
-        />
-      )}
+      <AnimatePresence>
+        {selectedReceipt && (
+          <ReceiptDetailModal
+            receipt={selectedReceipt}
+            onClose={() => setSelectedReceipt(null)}
+            role={role}
+            onUpdate={onUpdate}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -240,9 +310,11 @@ export default function History({
 type ReceiptDetailModalProps = {
   receipt: ReceiptRow;
   onClose: () => void;
+  role?: UserRole;
+  onUpdate?: () => Promise<void> | void;
 };
 
-function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
+function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: ReceiptDetailModalProps) {
   const score = toNumber(receipt.confidence_score);
   const tone = confidenceTone(score);
   const [editingNotes, setEditingNotes] = useState(false);
@@ -250,6 +322,48 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
   const [editSuccess, setEditSuccess] = useState(false);
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [localApproval, setLocalApproval] = useState(receipt.approval_status ?? 'submitted');
+
+  const approval = approvalBadge(localApproval);
+  const needsReimburse = receipt.paid_by === 'employee_cash';
+  const reimburse = needsReimburse ? reimbursementBadge(receipt.reimbursement_status) : null;
+
+  async function handleApproval(status: 'approved' | 'rejected') {
+    setApprovalLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const updatePayload: Record<string, unknown> = {
+        approval_status: status,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (needsReimburse) {
+        updatePayload.reimbursement_status = status;
+      }
+
+      const { error } = await supabase
+        .from('receipts')
+        .update(updatePayload)
+        .eq('id', receipt.id);
+
+      if (error) throw new Error(error.message);
+
+      await supabase.from('audit_logs').insert({
+        user_id: user?.id,
+        action: `receipt${status}`,
+        details: `Receipt ${status}: ${receipt.vendor_name} (${receipt.transaction_date}) by ${role}`,
+      });
+
+      setLocalApproval(status);
+      if (onUpdate) await onUpdate();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Approval failed.');
+    } finally {
+      setApprovalLoading(false);
+    }
+  }
 
   async function handleSaveEdit() {
     setEditSaving(true);
@@ -302,11 +416,18 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
   const integrityHash = receipt.integrity_hash ?? '';
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-xl sm:items-center"
       onClick={onClose}
     >
-      <div
+      <motion.div
+        initial={{ y: 40, opacity: 0, scale: 0.97 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: 40, opacity: 0, scale: 0.97 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 20 }}
         className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-glass-border bg-surface shadow-2xl sm:max-w-2xl sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -315,9 +436,18 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
             <h3 className="truncate text-lg font-bold text-text-primary">
               {receipt.vendor_name ?? 'Unknown Vendor'}
             </h3>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {formatDate(receipt.transaction_date)}
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-text-muted">{formatDate(receipt.transaction_date)}</p>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${approval.cls}`}>
+                {approval.label}
+              </span>
+              {reimburse && (
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${reimburse.cls}`}>
+                  <DollarSign className="h-3 w-3" />
+                  {reimburse.label}
+                </span>
+              )}
+            </div>
           </div>
 
           <button
@@ -361,6 +491,39 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
               </div>
             )}
 
+            {/* Owner Approval Actions */}
+            {role === 'Owner' && localApproval !== 'approved' && (
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleApproval('approved')}
+                  disabled={approvalLoading}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-success px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:opacity-60"
+                >
+                  {approvalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApproval('rejected')}
+                  disabled={approvalLoading}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm font-semibold text-red-400 transition hover:bg-red-500/20 disabled:opacity-60"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Reject
+                </button>
+              </div>
+            )}
+
+            {localApproval === 'approved' && (
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-emerald-300">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="font-semibold">Approved</span>
+                </div>
+              </div>
+            )}
+
             {/* Luxury Card 1: Store Info */}
             <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
               <div className="border-b border-glass-border px-5 py-3">
@@ -387,6 +550,14 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
                     {receipt.payment_method || 'Unknown'}{receipt.card_last_four ? ` •••• ${receipt.card_last_four}` : ''}
                   </p>
                 </div>
+                {receipt.paid_by && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Paid By</p>
+                    <p className="mt-0.5 text-sm font-medium text-text-primary">
+                      {receipt.paid_by === 'employee_cash' ? 'Employee Cash' : 'Company Card'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -419,7 +590,7 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
             <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
               <div className="flex items-center justify-between border-b border-glass-border px-5 py-3">
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">3. Compliance</p>
-                {!editingNotes && (
+                {!editingNotes && role !== 'Accountant' && (
                   <button
                     type="button"
                     onClick={() => { setEditingNotes(true); setEditSuccess(false); setEditError(''); }}
@@ -482,6 +653,30 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
               </div>
             </div>
 
+            {/* Line Items (Stacked Row Display) */}
+            {receipt.line_items && Array.isArray(receipt.line_items) && receipt.line_items.length > 0 && (
+              <div className="rounded-3xl border border-glass-border bg-surface shadow-sm overflow-hidden">
+                <div className="border-b border-glass-border px-5 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">Line Items</p>
+                </div>
+                <div className="divide-y divide-glass-border">
+                  {receipt.line_items.map((item, idx) => (
+                    <div key={idx} className="px-5 py-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-text-primary">{item.description || 'Item'}</p>
+                        <p className="text-sm font-bold tabular-nums text-champagne">${toNumber(item.line_total).toFixed(2)}</p>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-3 text-xs text-text-muted">
+                        <span>Qty: {item.quantity}</span>
+                        <span>Unit: ${toNumber(item.unit_price).toFixed(2)}</span>
+                        {toNumber(item.tax_amount) > 0 && <span>Tax: ${toNumber(item.tax_amount).toFixed(2)}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {integrityHash && (
               <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4 text-center">
                 <Fingerprint className="mx-auto mb-2 h-5 w-5 text-emerald-light" />
@@ -491,7 +686,7 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

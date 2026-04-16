@@ -136,3 +136,38 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   background-size: 200% 100%;
   animation: shimmer 1.8s ease-in-out infinite;
 }
+
+/* ─── Self-Healing AI Glow (Suite II) ─── */
+
+@keyframes selfHealingGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(190, 169, 142, 0);
+    border-color: rgba(190, 169, 142, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 16px 2px rgba(190, 169, 142, 0.2);
+    border-color: rgba(190, 169, 142, 0.6);
+  }
+}
+
+.self-healing-glow {
+  animation: selfHealingGlow 2.4s ease-in-out infinite;
+  border-color: rgba(190, 169, 142, 0.3) !important;
+}
+
+/* ─── Optimistic Upload Spinner ─── */
+
+@keyframes optimisticPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.optimistic-pulse {
+  animation: optimisticPulse 1.5s ease-in-out infinite;
+}
+
+/* ─── CRA Score Bar ─── */
+
+.cra-score-bar {
+  transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s ease;
+}

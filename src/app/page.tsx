@@ -11,12 +11,12 @@ import {
   Layers,
   Loader2,
   LogOut,
-  Receipt,
   ReceiptText,
   ShieldCheck,
   TrendingUp,
   UserCircle2,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import Dashboard from '@/components/Dashboard';
 import Export from '@/components/Export';
@@ -24,7 +24,8 @@ import History from '@/components/History';
 import Scanner from '@/components/Scanner';
 import AuditTrail from '@/components/AuditTrail';
 import { supabase } from '@/lib/supabase';
-import type { ReceiptRow } from '@/lib/types';
+import type { ReceiptRow, UserRole } from '@/lib/types';
+import type { User } from '@supabase/supabase-js';
 
 type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit';
 
@@ -54,37 +55,41 @@ function normalizeLineItems(rawValue: unknown): unknown[] | Record<string, unkno
   return null;
 }
 
-function normalizeReceipt(raw: any): ReceiptRow {
+function normalizeReceipt(raw: Record<string, unknown>): ReceiptRow {
   return {
     id: String(raw?.id ?? ''),
     user_id: String(raw?.user_id ?? ''),
-    vendor_name: raw?.vendor_name ?? '',
-    vendor_address: raw?.vendor_address ?? '',
-    vendor_tax_number: raw?.vendor_tax_number ?? '',
-    transaction_date: raw?.transaction_date ?? '',
-    transaction_time: raw?.transaction_time ?? '',
+    vendor_name: (raw?.vendor_name as string) ?? '',
+    vendor_address: (raw?.vendor_address as string) ?? '',
+    vendor_tax_number: (raw?.vendor_tax_number as string) ?? '',
+    transaction_date: (raw?.transaction_date as string) ?? '',
+    transaction_time: (raw?.transaction_time as string) ?? '',
     subtotal: Number(raw?.subtotal ?? 0),
     tax_amount: Number(raw?.tax_amount ?? 0),
     pst_amount: Number(raw?.pst_amount ?? 0),
     total_amount: Number(raw?.total_amount ?? 0),
-    currency: raw?.currency ?? 'CAD',
-    payment_method: raw?.payment_method ?? '',
-    card_last_four: raw?.card_last_four ?? '',
-    category: raw?.category ?? '',
-    notes: raw?.notes ?? '',
-    job_code: raw?.job_code ?? '',
-    vehicle_id: raw?.vehicle_id ?? '',
-    usage_type: raw?.usage_type ?? '',
+    currency: (raw?.currency as string) ?? 'CAD',
+    payment_method: (raw?.payment_method as string) ?? '',
+    card_last_four: (raw?.card_last_four as string) ?? '',
+    category: (raw?.category as string) ?? '',
+    notes: (raw?.notes as string) ?? '',
+    job_code: (raw?.job_code as string) ?? '',
+    vehicle_id: (raw?.vehicle_id as string) ?? '',
+    usage_type: (raw?.usage_type as ReceiptRow['usage_type']) ?? null,
     business_use_percent: Number(raw?.business_use_percent ?? 0),
     line_items: normalizeLineItems(raw?.line_items ?? null) as ReceiptRow['line_items'],
-    integrity_hash: raw?.integrity_hash ?? '',
+    integrity_hash: (raw?.integrity_hash as string) ?? '',
     confidence_score: Number(raw?.confidence_score ?? 0),
     cra_readiness_score: Number(raw?.cra_readiness_score ?? 0),
     thermal_warning: Boolean(raw?.thermal_warning ?? false),
-    capture_source: raw?.capture_source ?? '',
-    image_url: raw?.image_url ?? null,
+    capture_source: (raw?.capture_source as string) ?? '',
+    image_url: (raw?.image_url as string) ?? null,
     is_deleted: Boolean(raw?.is_deleted ?? false),
-    created_at: raw?.created_at ?? '',
+    created_at: (raw?.created_at as string) ?? '',
+    paid_by: (raw?.paid_by as string) ?? null,
+    reimbursement_status: (raw?.reimbursement_status as string) ?? null,
+    needs_reimbursement: Boolean(raw?.needs_reimbursement ?? false),
+    approval_status: (raw?.approval_status as string) ?? null,
   };
 }
 
@@ -95,6 +100,20 @@ const cad = new Intl.NumberFormat('en-CA', {
   currency: 'CAD',
   maximumFractionDigits: 2,
 });
+
+/* ─── Liquid Glass Spring Transition ─── */
+
+const tabTransition = {
+  type: 'spring' as const,
+  stiffness: 260,
+  damping: 20,
+};
+
+const tabVariants = {
+  initial: { opacity: 0, y: 16, scale: 0.97, filter: 'blur(4px)' },
+  animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
+  exit: { opacity: 0, y: -12, scale: 0.96, filter: 'blur(4px)' },
+};
 
 /* ─── Loader ─── */
 
@@ -147,8 +166,8 @@ function AuthScreen() {
         if (error) throw error;
         showToast('success', 'Account created. Please check your email to confirm.');
       }
-    } catch (error: any) {
-      showToast('error', error?.message ?? 'Authentication failed.');
+    } catch (error: unknown) {
+      showToast('error', error instanceof Error ? error.message : 'Authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -335,20 +354,29 @@ function AuditHUD({ receipts }: { receipts: ReceiptRow[] }) {
 
 export default function Page() {
   const [authLoading, setAuthLoading] = useState(true);
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(true);
   const [roleOpen, setRoleOpen] = useState(false);
-  const [role, setRole] = useState<'Owner' | 'Employee' | 'Accountant'>('Owner');
+  const [role, setRole] = useState<UserRole>('Owner');
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const showToast = useCallback((type: ToastState['type'], msg: string) => {
     setToast({ type, msg });
     window.setTimeout(() => setToast(null), 3500);
   }, []);
+
+  /* ─── Role-aware tab enforcement ─── */
+  useEffect(() => {
+    if (role === 'Employee') {
+      if (activeTab === 'dashboard' || activeTab === 'export' || activeTab === 'audit') {
+        setActiveTab('scan');
+      }
+    }
+  }, [role, activeTab]);
 
   useEffect(() => {
     let mounted = true;
@@ -372,13 +400,15 @@ export default function Page() {
     };
   }, []);
 
+  const userId = user?.id;
+
   const fetchReceipts = useCallback(async () => {
-    if (!user?.id) return;
+    if (!userId) return;
 
     setReceiptsLoading(true);
 
     try {
-      const { data, error } = await supabase
+      const queryReq = supabase
         .from('receipts')
         .select(`
           id,
@@ -406,48 +436,48 @@ export default function Page() {
           confidence_score,
           cra_readiness_score,
           thermal_warning,
+          needs_reimbursement,
+          approval_status,
+          paid_by,
+          reimbursement_status,
           capture_source,
           image_url,
           is_deleted,
           created_at
         `)
-        .eq('user_id', user.id)
         .eq('is_deleted', false)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        throw error;
+      if (role === 'Employee') {
+        queryReq.eq('user_id', userId);
       }
 
-      const safeRows = Array.isArray(data) ? data.map((row) => normalizeReceipt(row)) : [];
+      const { data, error } = await queryReq;
+
+      if (error) throw error;
+
+      const safeRows = Array.isArray(data) ? data.map((row) => normalizeReceipt(row as Record<string, unknown>)) : [];
       setReceipts(safeRows);
-    } catch (error: any) {
-      console.error('fetchReceipts failed:', {
-        message: error?.message ?? 'Unknown error',
-        details: error?.details ?? '',
-        hint: error?.hint ?? '',
-        code: error?.code ?? '',
-        full: error,
-      });
+    } catch (error: unknown) {
       setReceipts([]);
       showToast(
         'error',
-        error?.message ? `Failed to load receipts: ${error.message}` : 'Failed to load receipts.'
+        error instanceof Error ? `Failed to load receipts: ${error.message}` : 'Failed to load receipts.'
       );
     } finally {
       setReceiptsLoading(false);
     }
-  }, [user?.id, showToast]);
+  }, [userId, role, showToast]);
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!userId) {
       setReceipts([]);
       setReceiptsLoading(false);
       return;
     }
 
     fetchReceipts();
-  }, [user?.id, fetchReceipts]);
+  }, [userId, role, fetchReceipts]);
 
   const handleFilterClick = useCallback((filter: string) => {
     setActiveFilter(filter);
@@ -471,7 +501,7 @@ export default function Page() {
     primary?: boolean;
   }> = [
     { id: 'dashboard', label: 'Dash', icon: <LayoutDashboard className="h-5 w-5" /> },
-    { id: 'receipts', label: 'Records', icon: <Receipt className="h-5 w-5" /> },
+    { id: 'receipts', label: 'Records', icon: <ReceiptText className="h-5 w-5" /> },
     { id: 'scan', label: 'Scan', icon: <Camera className="h-6 w-6" />, primary: true },
     { id: 'export', label: 'Export', icon: <Download className="h-5 w-5" /> },
     { id: 'audit', label: 'Audit', icon: <ShieldCheck className="h-5 w-5" /> },
@@ -480,24 +510,30 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-obsidian text-text-primary">
       {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed left-1/2 top-4 z-[80] flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl backdrop-blur-xl ${
-            toast.type === 'error'
-              ? 'bg-red-500/90'
-              : toast.type === 'info'
-              ? 'bg-blue-500/90'
-              : 'bg-emerald-600/90'
-          }`}
-        >
-          {toast.type === 'error' ? (
-            <AlertCircle className="h-4 w-4" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4" />
-          )}
-          <span>{toast.msg}</span>
-        </div>
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+            className={`fixed left-1/2 top-4 z-[80] flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl backdrop-blur-xl ${
+              toast.type === 'error'
+                ? 'bg-red-500/90'
+                : toast.type === 'info'
+                ? 'bg-blue-500/90'
+                : 'bg-emerald-600/90'
+            }`}
+          >
+            {toast.type === 'error' ? (
+              <AlertCircle className="h-4 w-4" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            <span>{toast.msg}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Header */}
       <header className="fixed inset-x-0 top-0 z-50 liquid-glass">
@@ -527,89 +563,168 @@ export default function Page() {
               />
             </button>
 
-            {roleOpen && (
-              <div className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-glass-border bg-surface p-2 shadow-2xl">
-                <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-text-muted">
-                  Switch Role
-                </p>
+            <AnimatePresence>
+              {roleOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                  className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-glass-border bg-surface p-2 shadow-2xl"
+                >
+                  <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-text-muted">
+                    Switch Role
+                  </p>
 
-                {(['Owner', 'Employee', 'Accountant'] as const).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => {
-                      setRole(item);
-                      setRoleOpen(false);
-                    }}
-                    className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
-                      role === item ? 'bg-champagne/10 text-champagne' : 'text-text-secondary hover:bg-surface-raised'
-                    }`}
-                  >
-                    <Layers className="h-4 w-4" />
-                    <span>{item}</span>
-                    {role === item && <CheckCircle2 className="ml-auto h-4 w-4 text-champagne" />}
-                  </button>
-                ))}
+                  {(['Owner', 'Employee', 'Accountant'] as const).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => {
+                        setRole(item);
+                        setRoleOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
+                        role === item ? 'bg-champagne/10 text-champagne' : 'text-text-secondary hover:bg-surface-raised'
+                      }`}
+                    >
+                      <Layers className="h-4 w-4" />
+                      <span>{item}</span>
+                      {role === item && <CheckCircle2 className="ml-auto h-4 w-4 text-champagne" />}
+                    </button>
+                  ))}
 
-                <div className="mt-2 border-t border-glass-border pt-2">
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-400"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    <span>Sign out</span>
-                  </button>
-                </div>
-              </div>
-            )}
+                  <div className="mt-2 border-t border-glass-border pt-2">
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-400"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign out</span>
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-6xl px-4 pb-28 pt-24 sm:px-6">
+      <main className="mx-auto max-w-6xl px-4 pb-28 pt-24 sm:px-6 relative overflow-hidden">
         {/* Audit HUD */}
-        {!receiptsLoading && receipts.length > 0 && (
-          <div className="mb-5 fade-in">
+        {!receiptsLoading && receipts.length > 0 && role !== 'Employee' && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            transition={tabTransition}
+            className="mb-5"
+          >
             <AuditHUD receipts={receipts} />
-          </div>
+          </motion.div>
         )}
 
-        {receiptsLoading ? (
-          <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4">
-            <Loader2 className="h-9 w-9 animate-spin text-champagne" />
-            <p className="text-sm font-medium text-text-secondary">Loading your receipts…</p>
-          </div>
-        ) : activeTab === 'dashboard' ? (
-          <Dashboard receipts={receipts} onFilterClick={handleFilterClick} />
-        ) : activeTab === 'receipts' ? (
-          <History receipts={receipts} activeFilter={activeFilter} onUpdate={fetchReceipts} />
-        ) : activeTab === 'scan' ? (
-          <Scanner
-            user={user}
-            onSaveSuccess={async () => {
-              await fetchReceipts();
-              setActiveTab('receipts');
-              showToast('success', 'Receipt saved successfully.');
-            }}
-          />
-        ) : activeTab === 'export' ? (
-          <Export receipts={receipts} />
-        ) : (
-          <AuditTrail />
-        )}
+        <AnimatePresence mode="wait">
+          {receiptsLoading ? (
+            <motion.div 
+              key="loader"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+              className="flex min-h-[50vh] flex-col items-center justify-center gap-4"
+            >
+              <Loader2 className="h-9 w-9 animate-spin text-champagne" />
+              <p className="text-sm font-medium text-text-secondary">Loading your workspace…</p>
+            </motion.div>
+          ) : activeTab === 'dashboard' ? (
+            <motion.div 
+              key="dashboard"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <Dashboard receipts={receipts} onFilterClick={handleFilterClick} role={role} />
+            </motion.div>
+          ) : activeTab === 'receipts' ? (
+            <motion.div 
+              key="receipts"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <History receipts={receipts} activeFilter={activeFilter} onUpdate={fetchReceipts} role={role} />
+            </motion.div>
+          ) : activeTab === 'scan' ? (
+            <motion.div 
+              key="scan"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <Scanner
+                user={user}
+                onSaveSuccess={async () => {
+                  await fetchReceipts();
+                  setActiveTab('receipts');
+                  showToast('success', 'Receipt saved successfully.');
+                }}
+              />
+            </motion.div>
+          ) : activeTab === 'export' ? (
+            <motion.div 
+              key="export"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <Export receipts={receipts} />
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="audit"
+              variants={tabVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={tabTransition}
+            >
+              <AuditTrail />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Bottom Navigation */}
       <nav className="fixed inset-x-0 bottom-0 z-50 liquid-glass">
         <div className="mx-auto flex max-w-6xl items-end justify-around px-2 py-2 sm:px-4">
-          {navItems.map((item) =>
-            item.primary ? (
+          {navItems.map((item) => {
+            /* Employee: hide dashboard, export, audit */
+            if (role === 'Employee' && (item.id === 'dashboard' || item.id === 'export' || item.id === 'audit')) {
+              return null;
+            }
+            /* Accountant: hide audit */
+            if (role === 'Accountant' && item.id === 'audit') {
+              return null;
+            }
+            return item.primary ? (
               <div key={item.id} className="relative -mt-6 flex flex-col items-center gap-1">
-                <button
+                <motion.button
                   type="button"
                   onClick={() => setActiveTab(item.id)}
+                  whileTap={{ scale: 0.88 }}
+                  whileHover={{ scale: 1.06 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 15 }}
                   className={`flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition ${
                     activeTab === item.id
                       ? 'bg-emerald-success text-white shadow-emerald-success/30'
@@ -617,7 +732,7 @@ export default function Page() {
                   }`}
                 >
                   {item.icon}
-                </button>
+                </motion.button>
                 <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-light">
                   {item.label}
                 </span>
@@ -636,8 +751,8 @@ export default function Page() {
                   {item.label}
                 </span>
               </button>
-            )
-          )}
+            );
+          })}
         </div>
       </nav>
 

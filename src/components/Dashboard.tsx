@@ -7,7 +7,9 @@ import {
   BadgeAlert,
   BarChart3,
   CheckCircle2,
+  DollarSign,
   FileSearch,
+  Lock,
   Receipt,
   ShieldAlert,
   TrendingUp,
@@ -25,31 +27,32 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { motion } from 'framer-motion';
 
-import type { ReceiptRow } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
+import type { ReceiptRow, UserRole } from '@/lib/types';
 import {
   toNumber,
   formatCurrency,
-  formatDate,
-  categoryColor,
-  confidenceTone,
+  approvalBadge,
+  reimbursementBadge,
 } from '@/lib/ui-utils';
 
 interface DashboardProps {
   receipts: ReceiptRow[];
   onFilterClick: (filterType: string) => void;
+  role?: UserRole;
 }
 
+/* ─── Alberta Construction Taxonomy Colors ─── */
 const CATEGORY_COLORS = [
-  '#bea98e',
-  '#a89070',
-  '#0d4c3c',
-  '#10b981',
-  '#60a5fa',
-  '#8b5cf6',
-  '#f59e0b',
-  '#ef4444',
+  '#bea98e', // Job Materials
+  '#8b5cf6', // Subcontractors
+  '#ef4444', // Site Fuel
+  '#f59e0b', // Equipment Rental
+  '#06b6d4', // Small Tools
+  '#ec4899', // Vehicle Maintenance
+  '#60a5fa', // Travel/Lodging
+  '#10b981', // Office/Admin
 ];
 
 const currencyFormatter = new Intl.NumberFormat('en-CA', {
@@ -185,7 +188,50 @@ function AlertTile({
   );
 }
 
-export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
+/* ─── Access Denied Screen (Employee View) ─── */
+
+function AccessDeniedDashboard({ receipts }: { receipts: ReceiptRow[] }) {
+  const totalScanned = receipts.length;
+  const totalAmount = receipts.reduce((sum, r) => sum + toNumber(r.total_amount), 0);
+  const gstTotal = receipts.reduce((sum, r) => sum + toNumber(r.tax_amount), 0);
+
+  return (
+    <section className="space-y-6 fade-in">
+      <div className="flex flex-col items-center justify-center rounded-3xl border border-glass-border bg-surface p-10 text-center shadow-sm">
+        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-500/10 text-amber-400 mb-4">
+          <Lock className="h-8 w-8" />
+        </div>
+        <h2 className="text-xl font-bold text-text-primary">Dashboard Access Restricted</h2>
+        <p className="mt-2 max-w-md text-sm text-text-secondary">
+          The full dashboard with charts and audit alerts is available to Owners and Accountants only.
+          Below are your personal scan statistics.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">My Scans</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{totalScanned}</p>
+        </div>
+        <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">My Total</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-champagne">{currencyFormatter.format(totalAmount)}</p>
+        </div>
+        <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">My GST</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-emerald-light">{currencyFormatter.format(gstTotal)}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: DashboardProps) {
+  /* ─── Employee: Access Denied ─── */
+  if (role === 'Employee') {
+    return <AccessDeniedDashboard receipts={receipts} />;
+  }
+
   const {
     totalSpent,
     gstRecoverable,
@@ -196,6 +242,7 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
     missingBNCount,
     pendingReviewCount,
     flaggedAuditCount,
+    reimbursementQueue,
   } = useMemo(() => {
     const totalSpent = receipts.reduce((sum, r) => sum + toNumber(r.total_amount), 0);
     const gstRecoverable = receipts.reduce((sum, r) => sum + toNumber(r.tax_amount), 0);
@@ -208,6 +255,7 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
     let missingBNCount = 0;
     let pendingReviewCount = 0;
     let flaggedAuditCount = 0;
+    const reimbursementQueue: ReceiptRow[] = [];
 
     for (const receipt of receipts) {
       const category = String(receipt.category ?? 'Uncategorized').trim() || 'Uncategorized';
@@ -242,6 +290,10 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
       ) {
         flaggedAuditCount += 1;
       }
+
+      if (receipt.paid_by === 'employee_cash' && receipt.reimbursement_status === 'pending') {
+        reimbursementQueue.push(receipt);
+      }
     }
 
     const spendingByCategory = Array.from(categoryMap.entries())
@@ -268,6 +320,7 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
       missingBNCount,
       pendingReviewCount,
       flaggedAuditCount,
+      reimbursementQueue,
     };
   }, [receipts]);
 
@@ -310,6 +363,42 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
           icon={<TrendingUp className="h-5 w-5" />}
         />
       </div>
+
+      {/* Reimbursement Queue (Owner Only) */}
+      {role === 'Owner' && reimbursementQueue.length > 0 && (
+        <div className="rounded-3xl border border-amber-500/20 bg-amber-500/[0.04] p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-400">
+                <DollarSign className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-text-primary">Reimbursement Queue</p>
+                <p className="mt-0.5 text-xs text-text-secondary">{reimbursementQueue.length} employee claim{reimbursementQueue.length === 1 ? '' : 's'} pending</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onFilterClick('reimbursement')}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-amber-400 transition hover:text-amber-300"
+            >
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {reimbursementQueue.slice(0, 5).map((r) => (
+              <div key={r.id} className="flex items-center justify-between rounded-2xl border border-glass-border bg-surface px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-text-primary">{r.vendor_name}</p>
+                  <p className="text-xs text-text-muted">{r.transaction_date}</p>
+                </div>
+                <p className="text-sm font-bold tabular-nums text-amber-400">{currencyFormatter.format(toNumber(r.total_amount))}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_1fr]">
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm sm:p-5">
@@ -402,7 +491,7 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
                   />
                   <Tooltip
                     content={({ active, payload, label }) => (
-                      <CustomTooltip active={active} payload={payload as any} label={formatMonthLabel(String(label ?? ''))} />
+                      <CustomTooltip active={active} payload={payload as unknown as Array<{ value: number; name?: string; color?: string }>} label={formatMonthLabel(String(label ?? ''))} />
                     )}
                   />
                   <Line
