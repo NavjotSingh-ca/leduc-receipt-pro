@@ -120,8 +120,10 @@ export interface ReceiptRow {
   updated_at?: string | null;
 }
 
+import type { User } from '@supabase/supabase-js';
+
 export interface ScannerProps {
-  user: any;
+  user: User | null;
   onSaveSuccess: () => void;
 }
 

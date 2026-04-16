@@ -14,22 +14,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { formatDate } from '@/lib/ui-utils';
 import type { AuditLogRow } from '@/lib/types';
-
-function formatDateTime(value?: string): string {
-  if (!value) return 'Unknown time';
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString('en-CA', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
 
 function getActionMeta(action?: string) {
   const normalized = (action ?? '').toLowerCase();
@@ -219,7 +205,7 @@ export default function AuditTrail() {
                     </div>
 
                     <p className="mt-1 text-xs text-text-muted">
-                      {formatDateTime(log.created_at)}
+                      {formatDate(log.created_at)}
                     </p>
 
                     {log.details && (

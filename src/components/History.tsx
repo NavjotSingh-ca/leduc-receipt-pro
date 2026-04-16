@@ -21,6 +21,7 @@ import {
 
 import type { ReceiptRow } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { toNumber, formatCurrency, formatDate, categoryColor, confidenceTone } from '@/lib/ui-utils';
 
 type HistoryProps = {
   receipts: ReceiptRow[];
@@ -28,66 +29,6 @@ type HistoryProps = {
   onUpdate?: () => Promise<void> | void;
 };
 
-function toNumber(v: unknown): number {
-  const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function formatCurrency(value: number, currency = 'CAD'): string {
-  return new Intl.NumberFormat('en-CA', {
-    style: 'currency',
-    currency: currency || 'CAD',
-  }).format(Number.isFinite(value) ? value : 0);
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return 'No date';
-  const parts = value.split('-').map(Number);
-  if (parts.length !== 3 || parts.some(Number.isNaN)) return value;
-  const [year, month, day] = parts;
-  return new Date(year, month - 1, day).toLocaleDateString('en-CA', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function categoryColor(category?: string): string {
-  const map: Record<string, string> = {
-    'Office Supplies': '#bea98e',
-    'Meals Entertainment': '#f59e0b',
-    Travel: '#8b5cf6',
-    Fuel: '#ef4444',
-    'Professional Fees': '#10b981',
-    Supplies: '#06b6d4',
-    'Software Subscriptions': '#ec4899',
-    Utilities: '#f97316',
-    'General Expense': '#6b6560',
-  };
-  return map[category ?? ''] ?? '#6b6560';
-}
-
-function confidenceTone(score: number) {
-  if (score >= 85) {
-    return {
-      pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-      panel: 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-300',
-      label: 'High',
-    };
-  }
-  if (score >= 60) {
-    return {
-      pill: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
-      panel: 'bg-amber-500/[0.06] border-amber-500/20 text-amber-300',
-      label: 'Medium',
-    };
-  }
-  return {
-    pill: 'bg-red-500/15 text-red-400 border-red-500/20',
-    panel: 'bg-red-500/[0.06] border-red-500/20 text-red-300',
-    label: 'Low',
-  };
-}
 
 export default function History({
   receipts,
@@ -310,11 +251,6 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
   const [editError, setEditError] = useState('');
   const [editSuccess, setEditSuccess] = useState(false);
 
-  /**
-   * Archive-before-update: writes the current row to receipt_history,
-   * then updates receipts. If the archive insert fails, the update
-   * is never attempted (Legal Fortress immutable-history pattern).
-   */
   async function handleSaveEdit() {
     setEditSaving(true);
     setEditError('');
@@ -323,27 +259,23 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Step 1 — Archive the current version FIRST
       const { error: archiveError } = await supabase
         .from('receipt_history')
         .insert({
-          receipt_id:     receipt.id,
-          vendor_name:    receipt.vendor_name,
+          receipt_id: receipt.id,
+          vendor_name: receipt.vendor_name,
           transaction_date: receipt.transaction_date,
-          total_amount:   receipt.total_amount,
-          category:       receipt.category,
-          notes:          receipt.notes,
+          total_amount: receipt.total_amount,
+          category: receipt.category,
+          notes: receipt.notes,
           duplicate_hash: receipt.duplicate_hash,
           integrity_hash: receipt.integrity_hash,
-          archived_at:    new Date().toISOString(),
-          archived_by:    user?.id ?? 'system',
+          archived_at: new Date().toISOString(),
+          archived_by: user?.id ?? 'system',
         });
 
-      if (archiveError) {
-        throw new Error(`History archive failed — update aborted: ${archiveError.message}`);
-      }
+      if (archiveError) throw new Error(`History archive failed: ${archiveError.message}`);
 
-      // Step 2 — Update ONLY after successful archive
       const { error: updateError } = await supabase
         .from('receipts')
         .update({ notes: notesValue, updated_at: new Date().toISOString() })
@@ -351,103 +283,20 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
 
       if (updateError) throw new Error(updateError.message);
 
-      // Step 3 — Record to Audit Logs
       await supabase.from('audit_logs').insert({
         user_id: user?.id,
         action: 'receiptedited',
-        details: `Receipt updated: Notes modified for ${receipt.vendor_name}. Previous version archived to history.`,
+        details: `Receipt updated: Notes modified for ${receipt.vendor_name}. Previous version archived.`,
       });
 
       setEditSuccess(true);
       setEditingNotes(false);
-    } catch (err: any) {
-      setEditError(err?.message ?? 'Edit failed.');
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Edit failed.');
     } finally {
       setEditSaving(false);
     }
   }
-
-  const rows = [
-    {
-      label: 'Date',
-      value: formatDate(receipt.transaction_date),
-      icon: <CalendarDays className="h-4 w-4" />,
-    },
-    receipt.transaction_time
-      ? {
-          label: 'Time',
-          value: receipt.transaction_time,
-          icon: <CalendarDays className="h-4 w-4" />,
-        }
-      : null,
-    {
-      label: 'Category',
-      value: receipt.category ?? 'Uncategorized',
-      icon: <Tag className="h-4 w-4" />,
-    },
-    {
-      label: 'Subtotal',
-      value: formatCurrency(toNumber(receipt.subtotal), receipt.currency ?? 'CAD'),
-      icon: <Receipt className="h-4 w-4" />,
-    },
-    {
-      label: 'GST',
-      value: formatCurrency(toNumber(receipt.tax_amount), receipt.currency ?? 'CAD'),
-      icon: <Receipt className="h-4 w-4" />,
-    },
-    {
-      label: 'PST/HST',
-      value: formatCurrency(toNumber(receipt.pst_amount), receipt.currency ?? 'CAD'),
-      icon: <Receipt className="h-4 w-4" />,
-    },
-    {
-      label: 'Total',
-      value: formatCurrency(toNumber(receipt.total_amount), receipt.currency ?? 'CAD'),
-      icon: <Receipt className="h-4 w-4" />,
-    },
-    {
-      label: 'Payment',
-      value: [
-        receipt.payment_method ?? '',
-        receipt.card_last_four ? `•••• ${receipt.card_last_four}` : '',
-      ]
-        .filter(Boolean)
-        .join(' '),
-      icon: <CreditCard className="h-4 w-4" />,
-    },
-    receipt.vendor_address
-      ? {
-          label: 'Address',
-          value: receipt.vendor_address,
-          icon: <MapPin className="h-4 w-4" />,
-        }
-      : null,
-    receipt.vendor_tax_number
-      ? {
-          label: 'Business Number',
-          value: receipt.vendor_tax_number,
-          icon: <Fingerprint className="h-4 w-4" />,
-        }
-      : null,
-    receipt.job_code
-      ? {
-          label: 'Job Code',
-          value: receipt.job_code,
-          icon: <Tag className="h-4 w-4" />,
-        }
-      : null,
-    receipt.vehicle_id
-      ? {
-          label: 'Vehicle ID',
-          value: receipt.vehicle_id,
-          icon: <Tag className="h-4 w-4" />,
-        }
-      : null,
-  ].filter(Boolean) as Array<{
-    label: string;
-    value: string;
-    icon: React.ReactNode;
-  }>;
 
   const imageUrl = receipt.image_url ?? '';
   const integrityHash = receipt.integrity_hash ?? '';
@@ -483,11 +332,7 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
         <div className="flex-1 overflow-y-auto">
           {imageUrl ? (
             <div className="border-b border-glass-border bg-obsidian">
-              <img
-                src={imageUrl}
-                alt="Receipt"
-                className="max-h-80 w-full object-contain"
-              />
+              <img src={imageUrl} alt="Receipt" className="max-h-80 w-full object-contain" />
             </div>
           ) : (
             <div className="border-b border-glass-border bg-surface-raised px-5 py-8 text-center">
@@ -496,19 +341,13 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
             </div>
           )}
 
-          <div className="space-y-5 p-5">
+          <div className="space-y-6 p-5">
+            {/* AI Warning Panel */}
             <div className={`rounded-2xl border px-4 py-3 ${tone.panel}`}>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-wide">AI Confidence</p>
                 <p className="text-sm font-bold tabular-nums">{score}</p>
               </div>
-              <p className="mt-1.5 text-xs leading-relaxed">
-                {score >= 85
-                  ? 'Strong extraction quality. Still verify totals, tax fields, and business number before filing.'
-                  : score >= 60
-                  ? 'Some fields may need review. Check vendor, tax split, and missing identifiers.'
-                  : 'Low confidence result. Review all fields carefully before relying on this receipt.'}
-              </p>
             </div>
 
             {!receipt.vendor_tax_number && (
@@ -516,123 +355,140 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
                 <div className="flex items-start gap-2">
                   <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
                   <p className="text-xs leading-relaxed text-amber-300">
-                    GST/BN is missing on this receipt. Review before claiming input tax credits.
+                    GST/BN is missing on this receipt.
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="rounded-2xl border border-glass-border bg-surface-raised">
-              <div className="border-b border-glass-border px-4 py-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-text-muted">
-                  Receipt details
-                </p>
+            {/* Luxury Card 1: Store Info */}
+            <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
+              <div className="border-b border-glass-border px-5 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">1. Store Info</p>
               </div>
-
-              <div className="px-4 py-2">
-                {rows.map((row) => (
-                  <div
-                    key={row.label}
-                    className="flex items-start justify-between gap-4 border-b border-glass-border py-3 last:border-0"
-                  >
-                    <div className="flex items-center gap-2 text-text-muted">
-                      {row.icon}
-                      <span className="text-xs font-semibold uppercase tracking-wide">
-                        {row.label}
-                      </span>
-                    </div>
-                    <span className="max-w-[58%] break-words text-right text-sm font-semibold tabular-nums text-text-primary">
-                      {row.value || '—'}
-                    </span>
-                  </div>
-                ))}
+              <div className="grid gap-x-4 gap-y-3 p-5 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Vendor Name</p>
+                  <p className="mt-0.5 text-sm font-medium text-text-primary">{receipt.vendor_name || '—'}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Address</p>
+                  <p className="mt-0.5 text-sm font-medium text-text-primary">{receipt.vendor_address || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Date & Time</p>
+                  <p className="mt-0.5 text-sm font-medium text-text-primary">
+                    {formatDate(receipt.transaction_date)} {receipt.transaction_time ? `at ${receipt.transaction_time}` : ''}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Payment</p>
+                  <p className="mt-0.5 text-sm font-medium text-text-primary">
+                    {receipt.payment_method || 'Unknown'}{receipt.card_last_four ? ` •••• ${receipt.card_last_four}` : ''}
+                  </p>
+                </div>
               </div>
             </div>
 
-            {receipt.notes && (
-              <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] p-4">
-                <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-champagne">
-                  Business purpose
-                </p>
-                <p className="text-sm text-text-secondary">{receipt.notes}</p>
+            {/* Luxury Card 2: Financials */}
+            <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
+              <div className="border-b border-glass-border px-5 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">2. Financials</p>
               </div>
-            )}
-
-            {integrityHash && (
-              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
-                <div className="mb-1.5 flex items-center gap-2">
-                  <Fingerprint className="h-4 w-4 text-emerald-light" />
-                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-light">
-                    SHA-256 integrity hash
-                  </p>
+              <div className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Subtotal</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-primary">{formatCurrency(toNumber(receipt.subtotal), receipt.currency ?? 'CAD')}</p>
                 </div>
-                <p className="break-all font-mono text-[11px] leading-relaxed text-emerald-300">
-                  {integrityHash}
-                </p>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">GST</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-primary">{formatCurrency(toNumber(receipt.tax_amount), receipt.currency ?? 'CAD')}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">PST</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-primary">{formatCurrency(toNumber(receipt.pst_amount), receipt.currency ?? 'CAD')}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-champagne">Total</p>
+                  <p className="mt-0.5 text-base font-bold tabular-nums text-champagne">{formatCurrency(toNumber(receipt.total_amount), receipt.currency ?? 'CAD')}</p>
+                </div>
               </div>
-            )}
+            </div>
 
-            {/* ── Legal Fortress: Archive-before-update Notes Edit ── */}
-            <div className="rounded-2xl border border-glass-border bg-surface-raised">
-              <div className="flex items-center justify-between gap-3 border-b border-glass-border px-4 py-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-text-muted">Business purpose</p>
+            {/* Luxury Card 3: Compliance & Edits */}
+            <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
+              <div className="flex items-center justify-between border-b border-glass-border px-5 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">3. Compliance</p>
                 {!editingNotes && (
                   <button
                     type="button"
                     onClick={() => { setEditingNotes(true); setEditSuccess(false); setEditError(''); }}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-glass-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-glass-border-hover hover:text-champagne"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-glass-border bg-surface-raised px-2.5 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-glass-border-hover hover:text-champagne"
                   >
-                    <Edit3 className="h-3.5 w-3.5" />
-                    Edit
+                    <Edit3 className="h-3.5 w-3.5" /> Edit Mode
                   </button>
                 )}
               </div>
-
-              <div className="p-4">
-                {editingNotes ? (
-                  <div className="space-y-3">
-                    <textarea
-                      rows={4}
-                      value={notesValue}
-                      onChange={(e) => setNotesValue(e.target.value)}
-                      className="w-full resize-none rounded-xl border border-glass-border bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15"
-                      placeholder="Describe the business purpose of this expense."
-                    />
-                    {editError && (
-                      <p className="text-xs text-red-400">{editError}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSaveEdit}
-                        disabled={editSaving}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-success px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:opacity-60"
-                      >
-                        {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {editSaving ? 'Archiving & saving…' : 'Save edit'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setEditingNotes(false); setNotesValue(receipt.notes ?? ''); setEditError(''); }}
-                        className="rounded-xl border border-glass-border bg-surface px-3 py-2.5 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised"
-                      >
-                        Cancel
-                      </button>
+              <div className="grid gap-x-4 gap-y-4 p-5 sm:grid-cols-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">GST / Business Number</p>
+                  <p className="mt-0.5 text-sm font-mono font-medium text-text-primary">{receipt.vendor_tax_number || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Category</p>
+                  <p className="mt-0.5 text-sm font-medium text-text-primary">{receipt.category || '—'}</p>
+                </div>
+                
+                <div className="sm:col-span-2 mt-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted mb-2">Business purpose</p>
+                  {editingNotes ? (
+                    <div className="space-y-3">
+                      <textarea
+                        rows={3}
+                        value={notesValue}
+                        onChange={(e) => setNotesValue(e.target.value)}
+                        className="w-full resize-none rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15"
+                        placeholder="Describe the business purpose..."
+                      />
+                      {editError && <p className="text-xs text-red-400">{editError}</p>}
+                      {editSuccess && <p className="text-xs font-medium text-emerald-light">Edit saved across history log.</p>}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveEdit}
+                          disabled={editSaving}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-success px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:opacity-60"
+                        >
+                          {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          {editSaving ? 'Archiving...' : 'Save Record'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEditingNotes(false); setNotesValue(receipt.notes ?? ''); }}
+                          className="rounded-xl border border-glass-border bg-surface px-3 py-2.5 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-[11px] leading-5 text-text-muted">
-                      The current version will be archived to <span className="font-mono text-champagne">receipt_history</span> before this update is applied.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {editSuccess && (
-                      <p className="mb-2 text-xs font-medium text-emerald-light">Edit saved and previous version archived.</p>
-                    )}
-                    <p className="text-sm text-text-secondary">{notesValue || <span className="italic text-text-muted">No business purpose recorded.</span>}</p>
-                  </>
-                )}
+                  ) : (
+                    <div className="rounded-xl border border-glass-border bg-surface-raised p-3">
+                      <p className="text-sm text-text-secondary">
+                        {notesValue || <span className="italic text-text-muted">No business purpose recorded.</span>}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+
+            {integrityHash && (
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4 text-center">
+                <Fingerprint className="mx-auto mb-2 h-5 w-5 text-emerald-light" />
+                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-light">Immutable SHA-256 Record</p>
+                <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-emerald-300/80">{integrityHash}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

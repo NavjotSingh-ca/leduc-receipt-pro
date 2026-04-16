@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText, Hash, Plus, Trash2 } from 'lucide-react';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
@@ -48,10 +48,13 @@ export default function ScannerForm({
   const [isConfirmed, setIsConfirmed] = useState(false);
   const lineItems = Array.isArray(formData.line_items) ? formData.line_items : [];
 
-  useEffect(() => {
-    setIsConfirmed(false);
-  }, [formData.vendor_name, formData.transaction_date]);
+  const [lastCheckGroup, setLastCheckGroup] = useState<string>('');
 
+  const currentCheckGroup = `${formData.vendor_name}:${formData.transaction_date}`;
+  if (currentCheckGroup !== lastCheckGroup) {
+    setLastCheckGroup(currentCheckGroup);
+    setIsConfirmed(false);
+  }
   const missingBN = !String(formData.business_number ?? '').trim() || Boolean(formData.missing_bn_warning);
   const mathMismatch = Boolean(formData.math_mismatch_warning);
   const thermalWarning = Boolean(formData.thermal_warning);

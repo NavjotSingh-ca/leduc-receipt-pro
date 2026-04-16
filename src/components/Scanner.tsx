@@ -225,7 +225,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     const now = new Date().toISOString();
 
     return {
-      user_id: user.id,
+      user_id: user?.id ?? '',
       business_unit_id: receiptForm.business_unit_id || null,
       vendor_name: receiptForm.vendor_name.trim(),
       vendor_address: receiptForm.vendor_address.trim() || null,
@@ -272,7 +272,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     const { data, error } = await supabase
       .from('receipts')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', user?.id ?? '')
       .or(`integrity_hash.eq.${integrityHash},duplicate_hash.eq.${duplicateHash}`)
       .limit(1)
       .maybeSingle();
@@ -510,7 +510,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       }
 
       await supabase.from('audit_logs').insert({
-        user_id: user.id,
+        user_id: user?.id ?? 'system',
         action: 'receiptcreated',
         details: `Receipt saved: ${payload.vendor_name} ${payload.transaction_date} ${payload.total_amount.toFixed(2)} SHA256 ${integrityHash.slice(0, 16)}...`,
       });

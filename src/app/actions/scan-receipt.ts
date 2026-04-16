@@ -91,7 +91,26 @@ const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
 };
 
 function buildPrompt(): string {
-  return `Return receipt data as JSON. Fields: vendor_name, vendor_address, vendor_tax_number, transaction_date, transaction_time, subtotal, tax_amount, pst_amount, total_amount, currency, payment_method, card_last_four, category, line_items, confidence_score, cra_readiness_score, thermal_warning.`;
+  return `Return the receipt data as a single JSON object (NO markdown fences or other text) exactly matching this schema:
+{
+  "vendor_name": "string",
+  "vendor_address": "string",
+  "vendor_tax_number": "string (e.g., 123456789RT0001, or empty if none)",
+  "total_amount": 0.00,
+  "subtotal": 0.00,
+  "tax_amount": 0.00,
+  "pst_amount": 0.00,
+  "transaction_date": "YYYY-MM-DD",
+  "transaction_time": "HH:MM",
+  "payment_method": "Visa | Mastercard | Amex | Debit | Cash | E-Transfer | Cheque | Unknown",
+  "card_last_four": "string (4 digits)",
+  "category": "${VALID_CATEGORIES.join(' | ')}",
+  "confidence_score": 0 (0-100),
+  "cra_readiness_score": 0 (0-100),
+  "thermal_warning": false,
+  "line_items": [{"description": "string", "quantity": 1, "unit_price": 0.00, "tax_amount": 0.00, "line_total": 0.00}]
+}
+Parse the image content logically. Make sure the output is pure JSON.`;
 }
 
 function prepareImage(raw: string): { data: string; mimeType: string } {
@@ -111,7 +130,7 @@ function prepareImage(raw: string): { data: string; mimeType: string } {
 }
 
 function parseSafely(raw: string): Record<string, unknown> {
-  const cleanFences = raw.replace(/^```(?:json)?[\r\n]*/im, '').replace(/[\r\n]*```$/im, '').trim();
+  const cleanFences = raw.replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '').trim();
 
   // Step A: Parse directly
   try {
@@ -123,25 +142,27 @@ function parseSafely(raw: string): Record<string, unknown> {
   const end = cleanFences.lastIndexOf('}');
   
   if (start !== -1 && end > start) {
-    const extracted = cleanFences.slice(start, end + 1);
+    let extracted = cleanFences.slice(start, end + 1);
+    try {
+      return JSON.parse(extracted);
+    } catch (err) {}
+
+    // Step C.1: Fix trailing commas
+    extracted = extracted.replace(/,\s*([}\]])/g, '$1');
+    try {
+      return JSON.parse(extracted);
+    } catch (err) {}
+
+    // Step C.2: Strip unescaped newlines which break JSON strings
+    extracted = extracted.replace(/\r?\n|\r/g, ' ');
     try {
       return JSON.parse(extracted);
     } catch (err) {}
   }
 
-  // Step C: Strip newlines completely
-  const noNewlines = cleanFences.replace(/\r?\n|\r/g, '');
-  const noNewlinesStart = noNewlines.indexOf('{');
-  const noNewlinesEnd = noNewlines.lastIndexOf('}');
-
-  if (noNewlinesStart !== -1 && noNewlinesEnd > noNewlinesStart) {
-    const extractedFlat = noNewlines.slice(noNewlinesStart, noNewlinesEnd + 1);
-    try {
-      return JSON.parse(extractedFlat);
-    } catch (err) {}
-  }
-
-  throw new Error("JSON Parsing Failed completely");
+  // Step D: We failed. Pass back the first 100 chars to debug the hallucination.
+  const preview = raw.length > 150 ? raw.slice(0, 150) + '...' : raw;
+  throw new Error(`[Debug: ${preview}]`);
 }
 
 function toNum(v: unknown): number {
@@ -599,11 +620,12 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     let parsed: Record<string, unknown>;
     try {
       parsed = parseSafely(rawText);
-    } catch {
+    } catch (err) {
       console.error('[scan-receipt.ts] JSON parse failed via parseSafely. Raw:', rawText);
+      const debugMsg = err instanceof Error ? err.message : '';
       return {
         success: false,
-        error: 'AI response was messy. Please try clicking Analyze again.',
+        error: `AI response was messy. Please try clicking Analyze again. ${debugMsg}`,
       };
     }
 

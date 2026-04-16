@@ -27,6 +27,14 @@ import {
 } from 'recharts';
 
 import type { ReceiptRow } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
+import {
+  toNumber,
+  formatCurrency,
+  formatDate,
+  categoryColor,
+  confidenceTone,
+} from '@/lib/ui-utils';
 
 interface DashboardProps {
   receipts: ReceiptRow[];
@@ -49,11 +57,6 @@ const currencyFormatter = new Intl.NumberFormat('en-CA', {
   currency: 'CAD',
   maximumFractionDigits: 2,
 });
-
-function toNumber(value: unknown): number {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
 
 function formatMonthLabel(value: string): string {
   if (!value || !/^\d{4}-\d{2}$/.test(value)) return value;
