@@ -91,67 +91,7 @@ const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
 };
 
 function buildPrompt(): string {
-  return `
-You are a senior Canadian CPA and enterprise receipt-audit analyst building structured receipt records for CRA-ready bookkeeping.
-
-Today is April 11, ${CURRENT_YEAR}. Use this to resolve ambiguous or partial dates if the year is missing.
-
-Analyze the uploaded receipt image and return ONLY one valid JSON object.
-No markdown.
-No code fences.
-No explanation.
-No text before or after the JSON.
-
-Required JSON schema:
-{
-  "vendor_name": "string",
-  "vendor_address": "string",
-  "business_number": "string",
-  "total_amount": 0,
-  "subtotal": 0,
-  "tax_amount": 0,
-  "pst_amount": 0,
-  "card_last_four": "string",
-  "transaction_date": "YYYY-MM-DD",
-  "transaction_time": "HH:MM",
-  "payment_method": "Visa | Mastercard | Amex | Debit | Cash | E-Transfer | Cheque | Unknown",
-  "payment_reference": "string",
-  "category": "${VALID_CATEGORIES.join(' | ')}",
-  "notes": "minimum 8 words, specific CRA-audit-ready business purpose",
-  "confidence_score": 0,
-  "thermal_warning": false,
-  "document_type": "receipt | invoice | statement | unknown",
-  "duplicate_warning": false,
-  "line_items": [
-    {
-      "description": "string",
-      "quantity": 1,
-      "price": 0
-    }
-  ]
-}
-
-Rules:
-1. Search the ENTIRE image carefully for vendor name, full address, GST/BN number, subtotal, GST, PST/HST/QST, total, date, time, payment method, payment auth code/reference, and masked card digits.
-2. business_number must be a CRA/GST style value like 123456789RT0001 if present, otherwise "".
-3. payment_reference should be the payment auth code, approval code, reference number, or transaction reference from the payment section. If not visible, return "".
-4. line_items must contain visible purchased items when present. Each item must have description, quantity, and price. If quantity is not visible, use 1. If no line items are readable, return [].
-5. For Alberta receipts, GST is 5% and PST is 0.
-6. For Ontario HST 13%, split as 5% GST and 8% provincial portion.
-7. For Atlantic HST 15%, split as 5% GST and 10% provincial portion.
-8. For Quebec, put GST in tax_amount and QST in pst_amount.
-9. If only one tax number is visible with no split, infer split from province in the address.
-10. If subtotal is missing but total and taxes are visible, infer subtotal.
-11. If total is missing but subtotal and taxes are visible, infer total.
-12. payment_method must be one of the allowed values.
-13. card_last_four must be the last 4 visible digits when available, otherwise "".
-14. thermal_warning should be true if the receipt appears faded, faint, washed out, low contrast, or likely to degrade.
-15. confidence_score should be an integer 0-100 based on clarity, completeness, and certainty.
-16. category must be exactly one allowed category.
-17. notes must be a concise, specific business-purpose statement useful for CRA review.
-
-Return only the JSON object.
-  `.trim();
+  return `Return receipt data as JSON. Fields: vendor_name, vendor_address, vendor_tax_number, transaction_date, transaction_time, subtotal, tax_amount, pst_amount, total_amount, currency, payment_method, card_last_four, category, line_items, confidence_score, cra_readiness_score, thermal_warning.`;
 }
 
 function prepareImage(raw: string): { data: string; mimeType: string } {
@@ -170,19 +110,38 @@ function prepareImage(raw: string): { data: string; mimeType: string } {
   };
 }
 
-function extractJSON(raw: string): string {
-  let s = raw
-    .replace(/^```(?:json)?[\r\n]*/im, '')
-    .replace(/[\r\n]*```$/im, '')
-    .trim();
+function parseSafely(raw: string): Record<string, unknown> {
+  const cleanFences = raw.replace(/^```(?:json)?[\r\n]*/im, '').replace(/[\r\n]*```$/im, '').trim();
 
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
+  // Step A: Parse directly
+  try {
+    return JSON.parse(cleanFences);
+  } catch (err) {}
+
+  // Step B: Regex bracket extraction
+  const start = cleanFences.indexOf('{');
+  const end = cleanFences.lastIndexOf('}');
+  
   if (start !== -1 && end > start) {
-    s = s.slice(start, end + 1);
+    const extracted = cleanFences.slice(start, end + 1);
+    try {
+      return JSON.parse(extracted);
+    } catch (err) {}
   }
 
-  return s;
+  // Step C: Strip newlines completely
+  const noNewlines = cleanFences.replace(/\r?\n|\r/g, '');
+  const noNewlinesStart = noNewlines.indexOf('{');
+  const noNewlinesEnd = noNewlines.lastIndexOf('}');
+
+  if (noNewlinesStart !== -1 && noNewlinesEnd > noNewlinesStart) {
+    const extractedFlat = noNewlines.slice(noNewlinesStart, noNewlinesEnd + 1);
+    try {
+      return JSON.parse(extractedFlat);
+    } catch (err) {}
+  }
+
+  throw new Error("JSON Parsing Failed completely");
 }
 
 function toNum(v: unknown): number {
@@ -452,9 +411,10 @@ function computeConfidenceScore(options: {
 function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const vendor_name = toStr(raw.vendor_name) || 'Unknown Vendor';
   const vendor_address = toStr(raw.vendor_address);
-  const business_number_raw = toStr(raw.business_number).replace(/[\s-]/g, '');
+  // Support both property names for robustness from AI
+  const business_number_raw = toStr(raw.vendor_tax_number || raw.business_number).replace(/[\s-]/g, '');
   const hasBNPattern = /^\d{9}RT0001$/i.test(business_number_raw);
-  const business_number = hasBNPattern ? business_number_raw.toUpperCase() : '';
+  const business_number = hasBNPattern ? business_number_raw.toUpperCase() : business_number_raw;
 
   const rawCategory = toStr(raw.category);
   const category: ValidCategory = VALID_CATEGORIES.includes(rawCategory as ValidCategory)
@@ -636,16 +596,14 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
       };
     }
 
-    const jsonString = extractJSON(rawText);
-
     let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(jsonString);
+      parsed = parseSafely(rawText);
     } catch {
-      console.error('[scan-receipt.ts] JSON parse failed. Raw model output:', rawText);
+      console.error('[scan-receipt.ts] JSON parse failed via parseSafely. Raw:', rawText);
       return {
         success: false,
-        error: 'Technical Error: Could not parse the AI response. Ensure the receipt is in focus and well lit.',
+        error: 'AI response was messy. Please try clicking Analyze again.',
       };
     }
 
