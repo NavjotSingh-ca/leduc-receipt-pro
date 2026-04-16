@@ -617,12 +617,12 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
           ) : (
             <>
               <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-                <div className="space-y-4">
+                <div className="space-y-4 min-w-0">
                   <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface-raised">
                     <div className="flex items-center justify-between border-b border-glass-border bg-surface px-4 py-3">
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold text-text-primary">Captured image</p>
-                        <p className="text-xs text-text-muted">{originalFileName || 'receipt.jpg'}</p>
+                        <p className="text-xs text-text-muted truncate">{originalFileName || 'receipt.jpg'}</p>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -682,7 +682,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                   </div>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <ScannerForm
                     formData={formData}
                     setFormData={setFormData}

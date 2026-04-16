@@ -12,6 +12,12 @@ export const metadata: Metadata = {
   title: 'Receipt Pro — CRA-Ready Receipt Scanner',
   description:
     'Enterprise-grade Canadian receipt capture with SHA-256 integrity, CRA compliance scoring, and structured audit exports.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Receipt Pro',
+  },
 };
 
 export const viewport: Viewport = {
