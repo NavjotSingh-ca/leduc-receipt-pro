@@ -21,8 +21,8 @@ interface NoticeState {
   message: string;
 }
 
-const MAX_DIMENSION = 2000;
-const JPEG_QUALITY = 0.86;
+const MAX_DIMENSION = 1600;
+const JPEG_QUALITY = 0.6;
 const STORAGE_BUCKET = 'receipt-images';
 
 export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
@@ -229,7 +229,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       business_unit_id: receiptForm.business_unit_id || null,
       vendor_name: receiptForm.vendor_name.trim(),
       vendor_address: receiptForm.vendor_address.trim() || null,
-      business_number: receiptForm.business_number.trim() || null,
       vendor_tax_number: receiptForm.business_number.trim() || null,
       total_amount: Number(receiptForm.total_amount || 0),
       subtotal: Number(receiptForm.subtotal || 0),
