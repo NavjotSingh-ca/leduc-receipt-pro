@@ -26,7 +26,8 @@ const JPEG_QUALITY = 0.86;
 const STORAGE_BUCKET = 'receipt-images';
 
 export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
   const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -95,8 +96,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setDuplicateCandidate(null);
     setPendingSave(false);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = '';
+    }
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = '';
     }
   }
 
@@ -528,10 +532,22 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   return (
     <div className="space-y-4 fade-in">
       <input
-        ref={fileInputRef}
+        ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          await onCapture(file);
+        }}
+      />
+      
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*,application/pdf"
         className="hidden"
         onChange={async (event) => {
           const file = event.target.files?.[0];
@@ -580,7 +596,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => cameraInputRef.current?.click()}
                     className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim"
                   >
                     <Camera className="h-4 w-4" />
@@ -589,7 +605,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => galleryInputRef.current?.click()}
                     className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-5 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
                   >
                     <Upload className="h-4 w-4" />

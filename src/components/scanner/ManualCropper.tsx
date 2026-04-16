@@ -187,85 +187,100 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-obsidian/80 p-4 backdrop-blur-xl"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-obsidian/95 backdrop-blur-xl sm:p-6"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-5xl overflow-hidden rounded-3xl border border-glass-border bg-surface text-text-primary shadow-2xl"
+        className="flex h-full w-full flex-col overflow-hidden bg-surface text-text-primary shadow-2xl sm:h-auto sm:max-h-[90vh] sm:max-w-5xl sm:rounded-3xl sm:border sm:border-glass-border"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-glass-border px-5 py-4">
-          <div>
-            <h3 className="text-base font-bold">Manual crop</h3>
-            <p className="mt-1 text-sm text-text-muted">{fileName}</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setCrop(null)}
-              className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface-raised px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-surface-hover"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Reset
-            </button>
-
-            <button
-              type="button"
-              onClick={onCancel}
-              className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface-raised px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-surface-hover"
-            >
-              <X className="h-4 w-4" />
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              onClick={applyCrop}
-              disabled={!crop}
-              className="inline-flex items-center gap-2 rounded-xl bg-champagne px-3 py-2 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Check className="h-4 w-4" />
-              Apply crop
-            </button>
-          </div>
+        <div className="flex-none border-b border-glass-border px-5 py-4">
+          <h3 className="text-base font-bold">Manual crop</h3>
+          <p className="mt-1 truncate text-sm text-text-muted">{fileName}</p>
         </div>
 
-        <div className="space-y-4 p-5">
-          <div className="rounded-2xl border border-glass-border bg-surface-raised px-4 py-3 text-sm text-text-secondary">
-            Drag to create a crop box. Drag inside the box to move it. Click <span className="font-semibold text-champagne">Apply crop</span> to return the cropped data URL.
+        <div className="flex flex-1 flex-col overflow-y-auto p-4 sm:p-5">
+          <div className="mb-4 flex-none rounded-2xl border border-glass-border bg-surface-raised px-4 py-3 text-sm leading-relaxed text-text-secondary">
+            Drag to create a crop box. Drag inside the box to move it. Click <span className="font-semibold text-champagne">Apply crop</span> to return the cropped image.
           </div>
 
           <div
             ref={overlayRef}
-            className="relative mx-auto w-full overflow-hidden rounded-2xl border border-glass-border bg-obsidian"
+            className="relative mx-auto w-full flex-none overflow-hidden rounded-2xl border border-glass-border bg-obsidian touch-none"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={stopDragging}
             onPointerLeave={stopDragging}
-            style={{ touchAction: 'none' }}
           >
             <img
               ref={imageRef}
               src={imageSrc}
               alt="Crop source"
-              className="max-h-[72vh] w-full object-contain"
+              className="max-h-[55vh] w-full object-contain sm:max-h-[60vh]"
               onLoad={syncBounds}
             />
 
-            <div className="pointer-events-none absolute inset-0 bg-black/35" />
+            <div className="pointer-events-none absolute inset-0 bg-black/40" />
 
             {crop && (
               <div
-                className="pointer-events-none absolute border-2 border-champagne bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+                className="pointer-events-none absolute border-2 border-champagne bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
                 style={cropStyle}
               >
-                <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-champagne/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-obsidian">
+                {/* 44x44px minimum touch targets / visual corners */}
+                <div className="absolute -left-2 -top-2 flex h-11 w-11 items-start justify-start">
+                  <div className="h-4 w-4 border-l-4 border-t-4 border-champagne bg-transparent" />
+                </div>
+                <div className="absolute -right-2 -top-2 flex h-11 w-11 items-start justify-end">
+                  <div className="h-4 w-4 border-r-4 border-t-4 border-champagne bg-transparent" />
+                </div>
+                <div className="absolute -bottom-2 -left-2 flex h-11 w-11 items-end justify-start">
+                  <div className="h-4 w-4 border-b-4 border-l-4 border-champagne bg-transparent" />
+                </div>
+                <div className="absolute -bottom-2 -right-2 flex h-11 w-11 items-end justify-end">
+                  <div className="h-4 w-4 border-b-4 border-r-4 border-champagne bg-transparent" />
+                </div>
+
+                <div className="absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full bg-champagne/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-obsidian shadow-sm">
                   <Crop className="h-3 w-3" />
                   Crop
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        <div className="flex-none border-t border-glass-border bg-surface-raised p-4 pb-safe-bottom">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setCrop(null)}
+              className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface px-4 py-3.5 text-sm font-semibold text-text-secondary transition hover:bg-surface-hover"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span className="hidden sm:inline">Reset</span>
+            </button>
+
+            <div className="flex flex-1 items-center justify-end gap-3 sm:flex-none">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-glass-border bg-surface px-4 py-3.5 text-sm font-semibold text-text-secondary transition hover:bg-surface-hover sm:flex-none"
+              >
+                <X className="h-4 w-4" />
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={applyCrop}
+                disabled={!crop}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-champagne px-4 py-3.5 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
+              >
+                <Check className="h-4 w-4" />
+                Apply crop
+              </button>
+            </div>
           </div>
         </div>
       </div>
