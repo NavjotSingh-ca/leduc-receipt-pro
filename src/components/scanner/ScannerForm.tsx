@@ -43,7 +43,8 @@ export default function ScannerForm({
   businessUnits,
   saving,
   onSave,
-}: ScannerFormProps) {
+  hasAnalyzed,
+}: ScannerFormProps & { hasAnalyzed?: boolean }) {
   const [refineOpen, setRefineOpen] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const lineItems = Array.isArray(formData.line_items) ? formData.line_items : [];
@@ -611,15 +612,17 @@ export default function ScannerForm({
           </div>
         </button>
 
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving || !isConfirmed}
-          aria-disabled={saving || !isConfirmed}
-          className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-success px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? 'Saving receipt…' : 'Save receipt'}
-        </button>
+        {hasAnalyzed && (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || !isConfirmed}
+            aria-disabled={saving || !isConfirmed}
+            className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-success px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? 'Saving receipt…' : 'Save receipt'}
+          </button>
+        )}
       </div>
     </div>
   );

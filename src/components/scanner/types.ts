@@ -131,6 +131,7 @@ export interface ScannerFormProps {
   businessUnits: BusinessUnit[];
   saving: boolean;
   onSave: () => void;
+  hasAnalyzed?: boolean;
 }
 
 export interface ManualCropperProps {

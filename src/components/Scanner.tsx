@@ -42,6 +42,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const [showCropper, setShowCropper] = useState(false);
   const [duplicateCandidate, setDuplicateCandidate] = useState<DuplicateCandidate>(null);
   const [pendingSave, setPendingSave] = useState(false);
+  const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
@@ -95,6 +96,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setFormData(createBlankReceiptForm());
     setDuplicateCandidate(null);
     setPendingSave(false);
+    setHasAnalyzed(false);
 
     if (cameraInputRef.current) {
       cameraInputRef.current.value = '';
@@ -407,17 +409,23 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setNotice(null);
 
     try {
+      console.log('[Scanner.tsx] Calling scanReceipt...', { imageSrcLength: imageSrc.length });
       const result = await scanReceipt(imageSrc);
+      console.log('[Scanner.tsx] scanReceipt result:', result);
 
       if (!result.success) {
+        alert(`AI Error: ${result.error}`);
         showNotice('error', result.error);
         return;
       }
 
       mergeScanData(result.data);
-      showNotice('success', 'Receipt processed successfully.');
+      setHasAnalyzed(true);
+      showNotice('success', 'Receipt processed successfully. Please review the details below.');
     } catch (error) {
-      showNotice('error', error instanceof Error ? error.message : 'AI processing failed.');
+      const msg = error instanceof Error ? error.message : 'AI processing failed.';
+      alert(`System Error: ${msg}`);
+      showNotice('error', msg);
     } finally {
       setProcessingAI(false);
     }
@@ -493,9 +501,12 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         integrityHash,
       );
 
+      console.log('[Scanner.tsx] performSave generated payload:', payload);
+
       const { error: insertError } = await supabase.from('receipts').insert(payload);
 
       if (insertError) {
+        console.error('[Scanner.tsx] Supabase insertion error:', insertError);
         throw new Error(insertError.message);
       }
 
@@ -512,7 +523,10 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
       showNotice('success', 'Receipt saved successfully.');
     } catch (error) {
-      showNotice('error', error instanceof Error ? error.message : 'Failed to save receipt.');
+      const errorMsg = error instanceof Error ? error.message : 'Failed to save receipt.';
+      console.error('[Scanner.tsx] performSave error:', errorMsg);
+      alert(`Save failed: ${errorMsg}`);
+      showNotice('error', errorMsg);
     } finally {
       setSaving(false);
     }
@@ -664,16 +678,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                       {processingAI ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
                       {processingAI ? 'Processing with AI…' : 'Process with AI'}
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={onSave}
-                      disabled={!canSave}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-success px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                      {saving ? 'Saving receipt…' : 'Save receipt'}
-                    </button>
+                    {/* The top Save button has been removed to enforce the top-down logical flow (Analyze -> Verify -> Save) */}
                   </div>
 
                   <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] px-4 py-3 text-xs text-champagne-dim">
@@ -689,6 +694,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                     businessUnits={businessUnits}
                     saving={saving || processingAI || loadingBusinessUnits}
                     onSave={onSave}
+                    hasAnalyzed={hasAnalyzed}
                   />
                 </div>
               </div>

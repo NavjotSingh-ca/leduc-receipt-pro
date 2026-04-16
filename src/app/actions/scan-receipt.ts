@@ -642,10 +642,10 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     try {
       parsed = JSON.parse(jsonString);
     } catch {
-      console.error('[scanReceipt] JSON parse failed. Raw model output:\n', rawText);
+      console.error('[scan-receipt.ts] JSON parse failed. Raw model output:', rawText);
       return {
         success: false,
-        error: 'Could not parse the AI response. Ensure the receipt is in focus and well lit.',
+        error: 'Technical Error: Could not parse the AI response. Ensure the receipt is in focus and well lit.',
       };
     }
 
