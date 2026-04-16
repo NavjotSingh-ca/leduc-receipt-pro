@@ -26,66 +26,7 @@ import {
   YAxis,
 } from 'recharts';
 
-export interface ReceiptRow {
-  id: string;
-  user_id?: string;
-
-  vendor_name?: string;
-  vendorname?: string;
-
-  vendor_address?: string | null;
-  vendoraddress?: string | null;
-
-  business_number?: string | null;
-  vendortaxnumber?: string | null;
-
-  total_amount?: number | null;
-  totalamount?: number | null;
-
-  subtotal?: number | null;
-
-  tax_amount?: number | null;
-  taxamount?: number | null;
-
-  pst_amount?: number | null;
-  pstamount?: number | null;
-
-  transaction_date?: string | null;
-  transactiondate?: string | null;
-
-  transaction_time?: string | null;
-  transactiontime?: string | null;
-
-  category?: string | null;
-  notes?: string | null;
-
-  payment_method?: string | null;
-  paymentmethod?: string | null;
-
-  card_last_four?: string | null;
-  cardlastfour?: string | null;
-
-  currency?: string | null;
-
-  confidence_score?: number | null;
-  confidencescore?: number | null;
-
-  cra_readiness_score?: number | null;
-  thermal_warning?: boolean | null;
-  integrity_hash?: string | null;
-  image_url?: string | null;
-  created_at?: string | null;
-
-  accountant_status?: string | null;
-  review_status?: string | null;
-  status?: string | null;
-
-  flagged_for_audit?: boolean | null;
-  needs_review?: boolean | null;
-  duplicate_warning?: boolean | null;
-  math_mismatch_warning?: boolean | null;
-  missing_bn_warning?: boolean | null;
-}
+import type { ReceiptRow } from '@/lib/types';
 
 interface DashboardProps {
   receipts: ReceiptRow[];
@@ -93,14 +34,14 @@ interface DashboardProps {
 }
 
 const CATEGORY_COLORS = [
-  '#3b82f6',
+  '#bea98e',
+  '#a89070',
+  '#0d4c3c',
+  '#10b981',
   '#60a5fa',
-  '#2563eb',
-  '#93c5fd',
-  '#1d4ed8',
-  '#38bdf8',
-  '#0ea5e9',
-  '#6366f1',
+  '#8b5cf6',
+  '#f59e0b',
+  '#ef4444',
 ];
 
 const currencyFormatter = new Intl.NumberFormat('en-CA', {
@@ -112,49 +53,6 @@ const currencyFormatter = new Intl.NumberFormat('en-CA', {
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
-}
-
-function getTotalAmount(receipt: ReceiptRow): number {
-  return toNumber(receipt.total_amount ?? receipt.totalamount);
-}
-
-function getTaxAmount(receipt: ReceiptRow): number {
-  return toNumber(receipt.tax_amount ?? receipt.taxamount);
-}
-
-function getDateValue(receipt: ReceiptRow): string {
-  return String(receipt.transaction_date ?? receipt.transactiondate ?? '').trim();
-}
-
-function getCategory(receipt: ReceiptRow): string {
-  return String(receipt.category ?? 'Uncategorized').trim() || 'Uncategorized';
-}
-
-function hasBusinessNumber(receipt: ReceiptRow): boolean {
-  const bn = String(receipt.business_number ?? receipt.vendortaxnumber ?? '').trim();
-  return bn.length > 0;
-}
-
-function isPendingReview(receipt: ReceiptRow): boolean {
-  const raw = String(receipt.review_status ?? receipt.accountant_status ?? receipt.status ?? '').toLowerCase();
-
-  return (
-    Boolean(receipt.needs_review) ||
-    raw.includes('pending') ||
-    raw.includes('review') ||
-    raw.includes('owner review') ||
-    raw.includes('accountant review')
-  );
-}
-
-function isFlaggedForAudit(receipt: ReceiptRow): boolean {
-  return (
-    Boolean(receipt.flagged_for_audit) ||
-    Boolean(receipt.math_mismatch_warning) ||
-    Boolean(receipt.duplicate_warning) ||
-    Boolean(receipt.thermal_warning) ||
-    toNumber(receipt.cra_readiness_score) > 0 && toNumber(receipt.cra_readiness_score) < 70
-  );
 }
 
 function formatMonthLabel(value: string): string {
@@ -182,9 +80,9 @@ function CustomTooltip({
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-xl">
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="text-sm font-bold text-slate-900">{currencyFormatter.format(toNumber(payload[0].value))}</p>
+    <div className="rounded-2xl border border-glass-border bg-surface px-4 py-3 shadow-xl">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</p>
+      <p className="text-sm font-bold tabular-nums text-champagne">{currencyFormatter.format(toNumber(payload[0].value))}</p>
     </div>
   );
 }
@@ -201,16 +99,16 @@ function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm transition-all duration-200 hover:border-blue-100 hover:shadow-md sm:p-5">
+    <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm transition-all duration-200 hover:border-glass-border-hover hover:bg-surface-raised sm:p-5">
       <div className="mb-4 flex items-center justify-between">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-500">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
           {icon}
         </div>
       </div>
 
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{value}</p>
-      <p className="mt-1 text-sm text-slate-500">{helper}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</p>
+      <p className="mt-2 text-2xl font-bold tracking-tight tabular-nums text-text-primary sm:text-3xl">{value}</p>
+      <p className="mt-1 text-sm text-text-secondary">{helper}</p>
     </div>
   );
 }
@@ -230,22 +128,22 @@ function AlertTile({
 }) {
   const toneMap = {
     danger: {
-      wrap: 'border-red-100 bg-red-50/70 hover:bg-red-50',
-      icon: 'bg-red-100 text-red-600',
-      badge: 'bg-red-100 text-red-700',
-      arrow: 'text-red-500',
+      wrap: 'border-red-500/20 bg-red-500/[0.06] hover:bg-red-500/[0.10]',
+      icon: 'bg-red-500/15 text-red-400',
+      badge: 'bg-red-500/15 text-red-400',
+      arrow: 'text-red-400',
     },
     info: {
-      wrap: 'border-blue-100 bg-blue-50/70 hover:bg-blue-50',
-      icon: 'bg-blue-100 text-blue-600',
-      badge: 'bg-blue-100 text-blue-700',
-      arrow: 'text-blue-500',
+      wrap: 'border-blue-500/20 bg-blue-500/[0.06] hover:bg-blue-500/[0.10]',
+      icon: 'bg-blue-500/15 text-blue-400',
+      badge: 'bg-blue-500/15 text-blue-400',
+      arrow: 'text-blue-400',
     },
     warning: {
-      wrap: 'border-amber-100 bg-amber-50/70 hover:bg-amber-50',
-      icon: 'bg-amber-100 text-amber-600',
-      badge: 'bg-amber-100 text-amber-700',
-      arrow: 'text-amber-500',
+      wrap: 'border-amber-500/20 bg-amber-500/[0.06] hover:bg-amber-500/[0.10]',
+      icon: 'bg-amber-500/15 text-amber-400',
+      badge: 'bg-amber-500/15 text-amber-400',
+      arrow: 'text-amber-400',
     },
   }[tone];
 
@@ -271,11 +169,11 @@ function AlertTile({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-bold text-slate-900">{title}</p>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${toneMap.badge}`}>{count}</span>
+            <p className="text-sm font-bold text-text-primary">{title}</p>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-bold tabular-nums ${toneMap.badge}`}>{count}</span>
           </div>
 
-          <p className="mt-1 text-sm leading-relaxed text-slate-600">{description}</p>
+          <p className="mt-1 text-sm leading-relaxed text-text-secondary">{description}</p>
         </div>
 
         <ArrowRight className={`mt-1 h-4 w-4 flex-shrink-0 ${toneMap.arrow}`} />
@@ -296,8 +194,8 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
     pendingReviewCount,
     flaggedAuditCount,
   } = useMemo(() => {
-    const totalSpent = receipts.reduce((sum, receipt) => sum + getTotalAmount(receipt), 0);
-    const gstRecoverable = receipts.reduce((sum, receipt) => sum + getTaxAmount(receipt), 0);
+    const totalSpent = receipts.reduce((sum, r) => sum + toNumber(r.total_amount), 0);
+    const gstRecoverable = receipts.reduce((sum, r) => sum + toNumber(r.tax_amount), 0);
     const receiptCount = receipts.length;
     const avgTransaction = receiptCount > 0 ? totalSpent / receiptCount : 0;
 
@@ -309,24 +207,36 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
     let flaggedAuditCount = 0;
 
     for (const receipt of receipts) {
-      const category = getCategory(receipt);
-      categoryMap.set(category, (categoryMap.get(category) ?? 0) + getTotalAmount(receipt));
+      const category = String(receipt.category ?? 'Uncategorized').trim() || 'Uncategorized';
+      categoryMap.set(category, (categoryMap.get(category) ?? 0) + toNumber(receipt.total_amount));
 
-      const fullDate = getDateValue(receipt);
+      const fullDate = String(receipt.transaction_date ?? '').trim();
       if (fullDate.length >= 7) {
         const monthKey = fullDate.slice(0, 7);
-        monthMap.set(monthKey, (monthMap.get(monthKey) ?? 0) + getTotalAmount(receipt));
+        monthMap.set(monthKey, (monthMap.get(monthKey) ?? 0) + toNumber(receipt.total_amount));
       }
 
-      if (!hasBusinessNumber(receipt) || receipt.missing_bn_warning) {
+      const bn = String(receipt.vendor_tax_number ?? '').trim();
+      if (!bn || receipt.missing_bn_warning) {
         missingBNCount += 1;
       }
 
-      if (isPendingReview(receipt)) {
+      const reviewRaw = String(receipt.review_status ?? receipt.accountant_status ?? '').toLowerCase();
+      if (
+        receipt.needs_review ||
+        reviewRaw.includes('pending') ||
+        reviewRaw.includes('review')
+      ) {
         pendingReviewCount += 1;
       }
 
-      if (isFlaggedForAudit(receipt)) {
+      if (
+        receipt.flagged_for_audit ||
+        receipt.math_mismatch_warning ||
+        receipt.duplicate_warning ||
+        receipt.thermal_warning ||
+        (toNumber(receipt.cra_readiness_score) > 0 && toNumber(receipt.cra_readiness_score) < 70)
+      ) {
         flaggedAuditCount += 1;
       }
     }
@@ -359,14 +269,14 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
   }, [receipts]);
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-6 fade-in">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-500">Business overview</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Dashboard</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-champagne">Business overview</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Dashboard</h2>
         </div>
 
-        <div className="hidden rounded-2xl border border-slate-100 bg-white px-3 py-2 text-xs font-medium text-slate-500 shadow-sm sm:block">
+        <div className="hidden rounded-2xl border border-glass-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary shadow-sm sm:block">
           {receiptCount} receipt{receiptCount === 1 ? '' : 's'} tracked
         </div>
       </div>
@@ -399,34 +309,34 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_1fr]">
-        <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+        <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-bold text-slate-900">Spending by Category</p>
-              <p className="mt-1 text-xs text-slate-500">Top expense buckets across all receipts</p>
+              <p className="text-sm font-bold text-text-primary">Spending by Category</p>
+              <p className="mt-1 text-xs text-text-secondary">Top expense buckets across all receipts</p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-500">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
               <BarChart3 className="h-5 w-5" />
             </div>
           </div>
 
           {spendingByCategory.length === 0 ? (
-            <div className="flex h-[280px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center">
+            <div className="flex h-[280px] items-center justify-center rounded-2xl border border-dashed border-glass-border bg-surface-raised text-center">
               <div>
-                <p className="text-sm font-semibold text-slate-600">No category data yet</p>
-                <p className="mt-1 text-xs text-slate-400">Scan and save receipts to populate this chart.</p>
+                <p className="text-sm font-semibold text-text-secondary">No category data yet</p>
+                <p className="mt-1 text-xs text-text-muted">Scan and save receipts to populate this chart.</p>
               </div>
             </div>
           ) : (
             <div className="h-[280px] w-full sm:h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={spendingByCategory} margin={{ top: 8, right: 8, left: -24, bottom: 8 }}>
-                  <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
                   <XAxis
                     dataKey="name"
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#6b6560' }}
                     interval={0}
                     angle={spendingByCategory.length > 4 ? -20 : 0}
                     textAnchor={spendingByCategory.length > 4 ? 'end' : 'middle'}
@@ -436,7 +346,7 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
                   <YAxis
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#6b6560' }}
                     tickFormatter={(value: number) => formatShortCurrency(value)}
                   />
                   <Tooltip content={<CustomTooltip />} />
@@ -451,40 +361,40 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
           )}
         </div>
 
-        <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+        <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-bold text-slate-900">Monthly Spending Trend</p>
-              <p className="mt-1 text-xs text-slate-500">Spend movement over time</p>
+              <p className="text-sm font-bold text-text-primary">Monthly Spending Trend</p>
+              <p className="mt-1 text-xs text-text-secondary">Spend movement over time</p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-500">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
               <TrendingUp className="h-5 w-5" />
             </div>
           </div>
 
           {monthlyTrend.length === 0 ? (
-            <div className="flex h-[280px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center">
+            <div className="flex h-[280px] items-center justify-center rounded-2xl border border-dashed border-glass-border bg-surface-raised text-center">
               <div>
-                <p className="text-sm font-semibold text-slate-600">No monthly trend yet</p>
-                <p className="mt-1 text-xs text-slate-400">Receipts with transaction dates will appear here.</p>
+                <p className="text-sm font-semibold text-text-secondary">No monthly trend yet</p>
+                <p className="mt-1 text-xs text-text-muted">Receipts with transaction dates will appear here.</p>
               </div>
             </div>
           ) : (
             <div className="h-[280px] w-full sm:h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={monthlyTrend} margin={{ top: 8, right: 8, left: -24, bottom: 8 }}>
-                  <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
                   <XAxis
                     dataKey="month"
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#6b6560' }}
                     tickFormatter={formatMonthLabel}
                   />
                   <YAxis
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#6b6560' }}
                     tickFormatter={(value: number) => formatShortCurrency(value)}
                   />
                   <Tooltip
@@ -495,10 +405,10 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
                   <Line
                     type="monotone"
                     dataKey="amount"
-                    stroke="#3b82f6"
+                    stroke="#bea98e"
                     strokeWidth={3}
-                    dot={{ r: 4, fill: '#3b82f6', stroke: '#ffffff', strokeWidth: 2 }}
-                    activeDot={{ r: 6, fill: '#2563eb', stroke: '#ffffff', strokeWidth: 2 }}
+                    dot={{ r: 4, fill: '#bea98e', stroke: '#0c0c0c', strokeWidth: 2 }}
+                    activeDot={{ r: 6, fill: '#bea98e', stroke: '#0c0c0c', strokeWidth: 2 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -507,10 +417,10 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+      <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm sm:p-5">
         <div className="mb-4">
-          <p className="text-sm font-bold text-slate-900">Actionable alerts</p>
-          <p className="mt-1 text-xs text-slate-500">Tap a tile to open the filtered receipts list.</p>
+          <p className="text-sm font-bold text-text-primary">Actionable alerts</p>
+          <p className="mt-1 text-xs text-text-secondary">Tap a tile to open the filtered receipts list.</p>
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
@@ -540,14 +450,14 @@ export default function Dashboard({ receipts, onFilterClick }: DashboardProps) {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-blue-100 bg-blue-50/70 p-4 sm:p-5">
+      <div className="rounded-3xl border border-champagne/15 bg-champagne/[0.04] p-4 sm:p-5">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-white text-blue-500 shadow-sm">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-champagne/10 text-champagne shadow-sm">
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-900">Quick insight</p>
-            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+            <p className="text-sm font-bold text-text-primary">Quick insight</p>
+            <p className="mt-1 text-sm leading-relaxed text-text-secondary">
               GST recoverable is calculated from the receipt tax field, while the alert tiles surface missing business
               numbers, review backlog, and audit-risk records from the saved receipt metadata.
             </p>

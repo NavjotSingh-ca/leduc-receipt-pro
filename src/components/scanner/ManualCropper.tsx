@@ -187,24 +187,24 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-obsidian/80 p-4 backdrop-blur-xl"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 text-white shadow-2xl"
+        className="w-full max-w-5xl overflow-hidden rounded-3xl border border-glass-border bg-surface text-text-primary shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-glass-border px-5 py-4">
           <div>
             <h3 className="text-base font-bold">Manual crop</h3>
-            <p className="mt-1 text-sm text-slate-400">{fileName}</p>
+            <p className="mt-1 text-sm text-text-muted">{fileName}</p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setCrop(null)}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+              className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface-raised px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-surface-hover"
             >
               <RotateCcw className="h-4 w-4" />
               Reset
@@ -213,7 +213,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
             <button
               type="button"
               onClick={onCancel}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+              className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface-raised px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-surface-hover"
             >
               <X className="h-4 w-4" />
               Cancel
@@ -223,7 +223,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
               type="button"
               onClick={applyCrop}
               disabled={!crop}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-champagne px-3 py-2 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
               Apply crop
@@ -232,13 +232,13 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
         </div>
 
         <div className="space-y-4 p-5">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300">
-            Drag to create a crop box. Drag inside the box to move it. Click <span className="font-semibold text-white">Apply crop</span> to return the cropped data URL.
+          <div className="rounded-2xl border border-glass-border bg-surface-raised px-4 py-3 text-sm text-text-secondary">
+            Drag to create a crop box. Drag inside the box to move it. Click <span className="font-semibold text-champagne">Apply crop</span> to return the cropped data URL.
           </div>
 
           <div
             ref={overlayRef}
-            className="relative mx-auto w-full overflow-hidden rounded-2xl border border-slate-800 bg-black"
+            className="relative mx-auto w-full overflow-hidden rounded-2xl border border-glass-border bg-obsidian"
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={stopDragging}
@@ -257,10 +257,10 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
 
             {crop && (
               <div
-                className="pointer-events-none absolute border-2 border-blue-400 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+                className="pointer-events-none absolute border-2 border-champagne bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
                 style={cropStyle}
               >
-                <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-blue-500/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-champagne/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-obsidian">
                   <Crop className="h-3 w-3" />
                   Crop
                 </div>

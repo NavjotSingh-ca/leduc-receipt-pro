@@ -281,15 +281,15 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   }
 
   function mergeScanData(result: any) {
-    const businessNumber = String(result.businessnumber ?? result.business_number ?? '').trim();
-    const paymentMethod = String(result.paymentmethod ?? result.payment_method ?? formData.payment_method ?? 'Unknown').trim();
+    const businessNumber = String(result.business_number ?? '').trim();
+    const paymentMethod = String(result.payment_method ?? formData.payment_method ?? 'Unknown').trim();
 
-    const totalAmount = Number(result.totalamount ?? result.total_amount ?? 0);
+    const totalAmount = Number(result.total_amount ?? 0);
     const subtotal = Number(result.subtotal ?? 0);
-    const taxAmount = Number(result.taxamount ?? result.tax_amount ?? 0);
-    const pstAmount = Number(result.pstamount ?? result.pst_amount ?? 0);
+    const taxAmount = Number(result.tax_amount ?? 0);
+    const pstAmount = Number(result.pst_amount ?? 0);
 
-    const confidenceScore = Number(result.confidencescore ?? result.confidence_score ?? 0);
+    const confidenceScore = Number(result.confidence_score ?? 0);
 
     const missingBnWarning = businessNumber.length === 0;
     const mathMismatchWarning =
@@ -300,8 +300,8 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       Math.min(
         100,
         [
-          result.vendorname || result.vendor_name ? 18 : 0,
-          result.transactiondate || result.transaction_date ? 16 : 0,
+          result.vendor_name ? 18 : 0,
+          result.transaction_date ? 16 : 0,
           totalAmount > 0 ? 18 : 0,
           subtotal >= 0 ? 10 : 0,
           taxAmount >= 0 ? 8 : 0,
@@ -314,30 +314,30 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
     setFormData((prev) => ({
       ...prev,
-      vendor_name: String(result.vendorname ?? result.vendor_name ?? ''),
-      vendor_address: String(result.vendoraddress ?? result.vendor_address ?? ''),
+      vendor_name: String(result.vendor_name ?? ''),
+      vendor_address: String(result.vendor_address ?? ''),
       business_number: businessNumber,
       total_amount: totalAmount,
       subtotal,
       tax_amount: taxAmount,
       pst_amount: pstAmount,
-      transaction_date: String(result.transactiondate ?? result.transaction_date ?? prev.transaction_date),
-      transaction_time: String(result.transactiontime ?? result.transaction_time ?? ''),
+      transaction_date: String(result.transaction_date ?? prev.transaction_date),
+      transaction_time: String(result.transaction_time ?? ''),
       payment_method: paymentMethod || 'Unknown',
       payment_reference: prev.payment_reference,
-      card_last_four: String(result.cardlastfour ?? result.card_last_four ?? ''),
+      card_last_four: String(result.card_last_four ?? ''),
       category: String(result.category ?? prev.category ?? 'General Expense'),
       notes: String(result.notes ?? ''),
       currency: 'CAD',
       confidence_score: confidenceScore,
       cra_readiness_score: readinessScore,
-      thermal_warning: /thermal|fade|faded|heat/i.test(String(result.notes ?? '')),
+      thermal_warning: Boolean(result.thermal_warning),
       document_type: 'receipt',
       duplicate_warning: false,
       duplicate_hash: buildDuplicateHash({
         ...prev,
-        vendor_name: String(result.vendorname ?? result.vendor_name ?? ''),
-        transaction_date: String(result.transactiondate ?? result.transaction_date ?? prev.transaction_date),
+        vendor_name: String(result.vendor_name ?? ''),
+        transaction_date: String(result.transaction_date ?? prev.transaction_date),
         total_amount: totalAmount,
       } as ReceiptForm),
       math_mismatch_warning: mathMismatchWarning,
@@ -348,9 +348,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       job_code: prev.job_code,
       vehicle_id: prev.vehicle_id,
       business_unit_id: prev.business_unit_id,
-      line_items: Array.isArray(result.lineitems ?? result.line_items)
-        ? (result.lineitems ?? result.line_items)
-        : prev.line_items,
+      line_items: Array.isArray(result.line_items) ? result.line_items : prev.line_items,
     }));
   }
 
@@ -531,7 +529,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fade-in">
       <input
         ref={fileInputRef}
         type="file"
@@ -548,10 +546,10 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       {notice && (
         <div
           className={[
-            'flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm shadow-sm',
-            notice.tone === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-800',
-            notice.tone === 'error' && 'border-red-200 bg-red-50 text-red-800',
-            notice.tone === 'info' && 'border-blue-200 bg-blue-50 text-blue-800',
+            'flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm shadow-sm backdrop-blur-xl',
+            notice.tone === 'success' && 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300',
+            notice.tone === 'error' && 'border-red-500/20 bg-red-500/[0.06] text-red-300',
+            notice.tone === 'info' && 'border-blue-500/20 bg-blue-500/[0.06] text-blue-300',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -561,24 +559,24 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="text-lg font-bold text-slate-900">Scanner</h2>
-          <p className="mt-1 text-sm text-slate-500">
+      <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface shadow-sm">
+        <div className="border-b border-glass-border px-5 py-4">
+          <h2 className="text-lg font-bold text-text-primary">Scanner</h2>
+          <p className="mt-1 text-sm text-text-secondary">
             Capture, crop, extract, verify, and save a CRA-ready receipt record.
           </p>
         </div>
 
         <div className="space-y-5 p-5">
           {!imageSrc ? (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8">
+            <div className="rounded-3xl border border-dashed border-glass-border-hover bg-surface-raised p-8">
               <div className="mx-auto flex max-w-md flex-col items-center text-center">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100 text-blue-600">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
                   <Camera className="h-8 w-8" />
                 </div>
 
-                <h3 className="text-base font-bold text-slate-900">Capture a receipt</h3>
-                <p className="mt-2 text-sm text-slate-500">
+                <h3 className="text-base font-bold text-text-primary">Capture a receipt</h3>
+                <p className="mt-2 text-sm text-text-secondary">
                   Images are resized to 2000px before AI processing for consistent OCR quality.
                 </p>
 
@@ -586,7 +584,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim"
                   >
                     <Camera className="h-4 w-4" />
                     Use camera
@@ -595,7 +593,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-5 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
                   >
                     <Upload className="h-4 w-4" />
                     Upload image
@@ -607,18 +605,18 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
             <>
               <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
                 <div className="space-y-4">
-                  <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
-                    <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+                  <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface-raised">
+                    <div className="flex items-center justify-between border-b border-glass-border bg-surface px-4 py-3">
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">Captured image</p>
-                        <p className="text-xs text-slate-500">{originalFileName || 'receipt.jpg'}</p>
+                        <p className="text-sm font-semibold text-text-primary">Captured image</p>
+                        <p className="text-xs text-text-muted">{originalFileName || 'receipt.jpg'}</p>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => setShowCropper(true)}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          className="rounded-xl border border-glass-border bg-surface px-3 py-2 text-xs font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
                         >
                           Crop
                         </button>
@@ -626,7 +624,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                         <button
                           type="button"
                           onClick={resetScanner}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface px-3 py-2 text-xs font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
                           Reset
@@ -634,7 +632,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                       </div>
                     </div>
 
-                    <div className="bg-slate-100 p-3">
+                    <div className="bg-obsidian p-3">
                       <img
                         src={imageSrc}
                         alt="Captured receipt"
@@ -648,24 +646,24 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                       type="button"
                       onClick={onProcessAI}
                       disabled={!canProcess}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3.5 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {processingAI ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                      {processingAI ? 'Processing with AI...' : 'Process with AI'}
+                      {processingAI ? 'Processing with AI…' : 'Process with AI'}
                     </button>
 
                     <button
                       type="button"
                       onClick={onSave}
                       disabled={!canSave}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-success px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                      {saving ? 'Saving receipt...' : 'Save receipt'}
+                      {saving ? 'Saving receipt…' : 'Save receipt'}
                     </button>
                   </div>
 
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                  <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] px-4 py-3 text-xs text-champagne-dim">
                     A SHA-256 integrity hash is generated before upload, and duplicate checking is performed using both
                     the file hash and a vendor/date/amount fingerprint.
                   </div>

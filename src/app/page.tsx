@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Camera,
@@ -14,6 +14,7 @@ import {
   Receipt,
   ReceiptText,
   ShieldCheck,
+  TrendingUp,
   UserCircle2,
 } from 'lucide-react';
 
@@ -23,57 +24,24 @@ import History from '@/components/History';
 import Scanner from '@/components/Scanner';
 import AuditTrail from '@/components/AuditTrail';
 import { supabase } from '@/lib/supabase';
+import type { ReceiptRow } from '@/lib/types';
 
 type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit';
-
-type ReceiptRow = {
-  id: string;
-  user_id: string;
-  vendor_name: string;
-  vendor_address: string;
-  vendor_tax_number: string;
-  transaction_date: string;
-  transaction_time: string;
-  subtotal: number;
-  tax_amount: number;
-  pst_amount: number;
-  total_amount: number;
-  currency: string;
-  payment_method: string;
-  card_last_four: string;
-  category: string;
-  notes: string;
-  job_code: string;
-  vehicle_id: string;
-  usage_type: string;
-  business_use_percent: number;
-  line_items: unknown[] | Record<string, unknown> | string | null;
-  integrity_hash: string;
-  confidence_score: number;
-  cra_readiness_score: number;
-  thermal_warning: boolean;
-  capture_source: string;
-  device_info: string;
-  is_deleted: boolean;
-  created_at: string;
-};
 
 type ToastState = {
   type: 'success' | 'error' | 'info';
   msg: string;
 };
 
+/* ─── Helpers ─── */
+
 function normalizeLineItems(rawValue: unknown): unknown[] | Record<string, unknown> | string | null {
   if (rawValue === null || rawValue === undefined) return null;
-
   if (Array.isArray(rawValue)) return rawValue;
-
   if (typeof rawValue === 'object') return rawValue as Record<string, unknown>;
-
   if (typeof rawValue === 'string') {
     const trimmed = rawValue.trim();
     if (!trimmed) return null;
-
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) return parsed;
@@ -83,7 +51,6 @@ function normalizeLineItems(rawValue: unknown): unknown[] | Record<string, unkno
       return trimmed;
     }
   }
-
   return null;
 }
 
@@ -109,31 +76,43 @@ function normalizeReceipt(raw: any): ReceiptRow {
     vehicle_id: raw?.vehicle_id ?? '',
     usage_type: raw?.usage_type ?? '',
     business_use_percent: Number(raw?.business_use_percent ?? 0),
-    line_items: normalizeLineItems(raw?.line_items ?? null),
+    line_items: normalizeLineItems(raw?.line_items ?? null) as ReceiptRow['line_items'],
     integrity_hash: raw?.integrity_hash ?? '',
     confidence_score: Number(raw?.confidence_score ?? 0),
     cra_readiness_score: Number(raw?.cra_readiness_score ?? 0),
     thermal_warning: Boolean(raw?.thermal_warning ?? false),
     capture_source: raw?.capture_source ?? '',
-    device_info: raw?.device_info ?? '',
+    image_url: raw?.image_url ?? null,
     is_deleted: Boolean(raw?.is_deleted ?? false),
     created_at: raw?.created_at ?? '',
   };
 }
 
+/* ─── Currency Formatter ─── */
+
+const cad = new Intl.NumberFormat('en-CA', {
+  style: 'currency',
+  currency: 'CAD',
+  maximumFractionDigits: 2,
+});
+
+/* ─── Loader ─── */
+
 function FullPageLoader() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+    <div className="flex min-h-screen items-center justify-center bg-obsidian">
       <div className="flex flex-col items-center gap-4">
-        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-600 shadow-xl shadow-blue-200">
-          <ReceiptText className="h-8 w-8 text-white" />
+        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-champagne/15 champagne-glow">
+          <ReceiptText className="h-8 w-8 text-champagne" />
         </div>
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-        <p className="text-sm font-medium text-slate-500">Loading Receipt Pro...</p>
+        <Loader2 className="h-6 w-6 animate-spin text-champagne" />
+        <p className="text-sm font-medium text-text-secondary">Loading Receipt Pro…</p>
       </div>
     </div>
   );
 }
+
+/* ─── Auth Screen ─── */
 
 function AuthScreen() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -153,14 +132,11 @@ function AuthScreen() {
       showToast('error', 'Please enter your email and password.');
       return;
     }
-
     if (!accepted) {
       showToast('error', 'Please accept the terms to continue.');
       return;
     }
-
     setLoading(true);
-
     try {
       if (mode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -179,18 +155,18 @@ function AuthScreen() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.25),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(148,163,184,0.18),transparent_30%)]" />
+    <div className="relative min-h-screen overflow-hidden bg-obsidian">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(190,169,142,0.12),transparent_40%),radial-gradient(circle_at_bottom_right,rgba(13,76,60,0.10),transparent_35%)]" />
 
       {toast && (
         <div
           className={`fixed left-1/2 top-6 z-50 flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl ${
             toast.type === 'error'
-              ? 'bg-red-500'
+              ? 'bg-red-500/90'
               : toast.type === 'info'
-              ? 'bg-blue-500'
-              : 'bg-emerald-500'
-          }`}
+              ? 'bg-blue-500/90'
+              : 'bg-emerald-600/90'
+          } backdrop-blur-xl`}
         >
           {toast.type === 'error' ? (
             <AlertCircle className="h-4 w-4" />
@@ -202,38 +178,40 @@ function AuthScreen() {
       )}
 
       <div className="relative mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4 py-10">
-        <div className="grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 shadow-2xl backdrop-blur-xl lg:grid-cols-2">
-          <div className="hidden flex-col justify-between bg-gradient-to-br from-blue-700 to-slate-900 p-10 text-white lg:flex">
+        <div className="grid w-full max-w-5xl overflow-hidden rounded-[2rem] border border-glass-border bg-white/[0.03] shadow-2xl backdrop-blur-xl lg:grid-cols-2">
+          {/* Left Hero */}
+          <div className="hidden flex-col justify-between bg-gradient-to-br from-surface via-surface-raised to-obsidian p-10 text-text-primary lg:flex">
             <div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
-                <ReceiptText className="h-7 w-7" />
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-champagne/15">
+                <ReceiptText className="h-7 w-7 text-champagne" />
               </div>
               <h1 className="mt-8 text-4xl font-bold tracking-tight">Receipt Pro</h1>
-              <p className="mt-3 max-w-md text-sm leading-7 text-blue-100">
+              <p className="mt-3 max-w-md text-sm leading-7 text-text-secondary">
                 Canadian receipt capture, CRA-ready exports, audit integrity, and accountant handoff in one clean workflow.
               </p>
             </div>
 
-            <div className="space-y-4 text-sm text-blue-50/90">
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+            <div className="space-y-4 text-sm text-text-secondary">
+              <div className="rounded-2xl border border-glass-border bg-white/[0.04] p-4">
                 SHA-256 integrity tracking, export logbooks, and structured expense records built for professional recordkeeping.
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+              <div className="rounded-2xl border border-glass-border bg-white/[0.04] p-4">
                 Scanner, dashboard, history, export, and audit modules in one shell.
               </div>
             </div>
           </div>
 
-          <div className="bg-white p-6 sm:p-10">
+          {/* Right Form */}
+          <div className="bg-surface p-6 sm:p-10">
             <div className="mx-auto w-full max-w-md">
               <div className="mb-8 text-center lg:text-left">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-600 shadow-lg shadow-blue-100 lg:mx-0">
-                  <ReceiptText className="h-8 w-8 text-white" />
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-champagne/15 champagne-glow lg:mx-0">
+                  <ReceiptText className="h-8 w-8 text-champagne" />
                 </div>
-                <h2 className="mt-6 text-3xl font-bold tracking-tight text-slate-900">
+                <h2 className="mt-6 text-3xl font-bold tracking-tight text-text-primary">
                   {mode === 'signin' ? 'Sign in' : 'Create account'}
                 </h2>
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-2 text-sm text-text-secondary">
                   {mode === 'signin'
                     ? 'Access your receipts, exports, and audit records.'
                     : 'Start capturing and organizing receipts securely.'}
@@ -242,20 +220,20 @@ function AuthScreen() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                     Email
                   </label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-2xl border border-glass-border bg-surface-raised px-4 py-3 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15"
                     placeholder="you@company.ca"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                     Password
                   </label>
                   <input
@@ -263,7 +241,7 @@ function AuthScreen() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-2xl border border-glass-border bg-surface-raised px-4 py-3 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15"
                     placeholder="••••••••"
                   />
                 </div>
@@ -273,18 +251,18 @@ function AuthScreen() {
                   onClick={() => setAccepted((v) => !v)}
                   className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
                     accepted
-                      ? 'border-blue-200 bg-blue-50'
-                      : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                      ? 'border-champagne/30 bg-champagne/[0.06]'
+                      : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'
                   }`}
                 >
                   <div
                     className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${
-                      accepted ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-300 bg-white'
+                      accepted ? 'border-champagne bg-champagne text-obsidian' : 'border-text-muted bg-surface'
                     }`}
                   >
                     {accepted && <CheckCircle2 className="h-3.5 w-3.5" />}
                   </div>
-                  <p className="text-xs leading-6 text-slate-600">
+                  <p className="text-xs leading-6 text-text-secondary">
                     I understand Receipt Pro is a recordkeeping tool and I remain responsible for reviewing exported tax and accounting data.
                   </p>
                 </button>
@@ -293,7 +271,7 @@ function AuthScreen() {
                   type="button"
                   onClick={handleSubmit}
                   disabled={loading || !accepted}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-100 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-champagne px-4 py-3.5 text-sm font-bold text-obsidian shadow-lg transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                   {mode === 'signin' ? 'Sign In' : 'Create Account'}
@@ -302,7 +280,7 @@ function AuthScreen() {
                 <button
                   type="button"
                   onClick={() => setMode((m) => (m === 'signin' ? 'signup' : 'signin'))}
-                  className="w-full text-sm font-medium text-blue-600 transition hover:text-blue-700"
+                  className="w-full text-sm font-medium text-champagne transition hover:text-champagne-dim"
                 >
                   {mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
                 </button>
@@ -314,6 +292,46 @@ function AuthScreen() {
     </div>
   );
 }
+
+/* ─── Audit HUD ─── */
+
+function AuditHUD({ receipts }: { receipts: ReceiptRow[] }) {
+  const { gstRecoverable, monthLabel, receiptCount } = useMemo(() => {
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthReceipts = receipts.filter((r) => (r.transaction_date ?? '').startsWith(currentMonth));
+
+    const gstRecoverable = monthReceipts.reduce((sum, r) => sum + Number(r.tax_amount ?? 0), 0);
+    const monthLabel = now.toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
+
+    return { gstRecoverable, monthLabel, receiptCount: monthReceipts.length };
+  }, [receipts]);
+
+  return (
+    <div className="liquid-glass rounded-2xl px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-success/30">
+            <TrendingUp className="h-4 w-4 text-emerald-light" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-text-muted">
+              {monthLabel} · Tax Recoverable
+            </p>
+            <p className="text-lg font-bold tracking-tight text-champagne tabular-nums">
+              {cad.format(gstRecoverable)}
+            </p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-medium text-text-muted">{receiptCount} receipts</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main Page ─── */
 
 export default function Page() {
   const [authLoading, setAuthLoading] = useState(true);
@@ -389,7 +407,7 @@ export default function Page() {
           cra_readiness_score,
           thermal_warning,
           capture_source,
-          device_info,
+          image_url,
           is_deleted,
           created_at
         `)
@@ -452,23 +470,24 @@ export default function Page() {
     icon: React.ReactNode;
     primary?: boolean;
   }> = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-5 w-5" /> },
-    { id: 'receipts', label: 'Receipts', icon: <Receipt className="h-5 w-5" /> },
+    { id: 'dashboard', label: 'Dash', icon: <LayoutDashboard className="h-5 w-5" /> },
+    { id: 'receipts', label: 'Records', icon: <Receipt className="h-5 w-5" /> },
     { id: 'scan', label: 'Scan', icon: <Camera className="h-6 w-6" />, primary: true },
     { id: 'export', label: 'Export', icon: <Download className="h-5 w-5" /> },
     { id: 'audit', label: 'Audit', icon: <ShieldCheck className="h-5 w-5" /> },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-obsidian text-text-primary">
+      {/* Toast */}
       {toast && (
         <div
-          className={`fixed left-1/2 top-4 z-[80] flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl ${
+          className={`fixed left-1/2 top-4 z-[80] flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl backdrop-blur-xl ${
             toast.type === 'error'
-              ? 'bg-red-500'
+              ? 'bg-red-500/90'
               : toast.type === 'info'
-              ? 'bg-blue-500'
-              : 'bg-emerald-500'
+              ? 'bg-blue-500/90'
+              : 'bg-emerald-600/90'
           }`}
         >
           {toast.type === 'error' ? (
@@ -480,15 +499,16 @@ export default function Page() {
         </div>
       )}
 
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+      {/* Header */}
+      <header className="fixed inset-x-0 top-0 z-50 liquid-glass">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 shadow-md shadow-blue-100">
-              <ReceiptText className="h-5 w-5 text-white" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-champagne/15 champagne-glow">
+              <ReceiptText className="h-5 w-5 text-champagne" />
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-tight text-slate-900">Receipt Pro</h1>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-600">
+              <h1 className="text-base font-bold tracking-tight text-text-primary">Receipt Pro</h1>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-champagne">
                 CRA-ready records
               </p>
             </div>
@@ -498,18 +518,18 @@ export default function Page() {
             <button
               type="button"
               onClick={() => setRoleOpen((v) => !v)}
-              className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"
+              className="flex items-center gap-2 rounded-full border border-glass-border bg-surface px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-glass-border-hover hover:bg-surface-raised"
             >
-              <UserCircle2 className="h-4 w-4 text-blue-600" />
+              <UserCircle2 className="h-4 w-4 text-champagne" />
               <span>Role: {role}</span>
               <ChevronDown
-                className={`h-3.5 w-3.5 text-slate-400 transition ${roleOpen ? 'rotate-180' : ''}`}
+                className={`h-3.5 w-3.5 text-text-muted transition ${roleOpen ? 'rotate-180' : ''}`}
               />
             </button>
 
             {roleOpen && (
-              <div className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
-                <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              <div className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-glass-border bg-surface p-2 shadow-2xl">
+                <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-text-muted">
                   Switch Role
                 </p>
 
@@ -522,20 +542,20 @@ export default function Page() {
                       setRoleOpen(false);
                     }}
                     className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
-                      role === item ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'
+                      role === item ? 'bg-champagne/10 text-champagne' : 'text-text-secondary hover:bg-surface-raised'
                     }`}
                   >
                     <Layers className="h-4 w-4" />
                     <span>{item}</span>
-                    {role === item && <CheckCircle2 className="ml-auto h-4 w-4 text-blue-600" />}
+                    {role === item && <CheckCircle2 className="ml-auto h-4 w-4 text-champagne" />}
                   </button>
                 ))}
 
-                <div className="mt-2 border-t border-slate-100 pt-2">
+                <div className="mt-2 border-t border-glass-border pt-2">
                   <button
                     type="button"
                     onClick={handleSignOut}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-600 transition hover:bg-red-50 hover:text-red-600"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-400"
                   >
                     <LogOut className="h-4 w-4" />
                     <span>Sign out</span>
@@ -547,16 +567,24 @@ export default function Page() {
         </div>
       </header>
 
+      {/* Main Content */}
       <main className="mx-auto max-w-6xl px-4 pb-28 pt-24 sm:px-6">
+        {/* Audit HUD */}
+        {!receiptsLoading && receipts.length > 0 && (
+          <div className="mb-5 fade-in">
+            <AuditHUD receipts={receipts} />
+          </div>
+        )}
+
         {receiptsLoading ? (
           <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4">
-            <Loader2 className="h-9 w-9 animate-spin text-blue-600" />
-            <p className="text-sm font-medium text-slate-500">Loading your receipts...</p>
+            <Loader2 className="h-9 w-9 animate-spin text-champagne" />
+            <p className="text-sm font-medium text-text-secondary">Loading your receipts…</p>
           </div>
         ) : activeTab === 'dashboard' ? (
-          <Dashboard receipts={receipts as any} onFilterClick={handleFilterClick} />
+          <Dashboard receipts={receipts} onFilterClick={handleFilterClick} />
         ) : activeTab === 'receipts' ? (
-          <History receipts={receipts as any} activeFilter={activeFilter} onUpdate={fetchReceipts} />
+          <History receipts={receipts} activeFilter={activeFilter} onUpdate={fetchReceipts} />
         ) : activeTab === 'scan' ? (
           <Scanner
             user={user}
@@ -567,13 +595,14 @@ export default function Page() {
             }}
           />
         ) : activeTab === 'export' ? (
-          <Export receipts={receipts as any} />
+          <Export receipts={receipts} />
         ) : (
           <AuditTrail />
         )}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 backdrop-blur-xl">
+      {/* Bottom Navigation */}
+      <nav className="fixed inset-x-0 bottom-0 z-50 liquid-glass">
         <div className="mx-auto flex max-w-6xl items-end justify-around px-2 py-2 sm:px-4">
           {navItems.map((item) =>
             item.primary ? (
@@ -583,13 +612,13 @@ export default function Page() {
                   onClick={() => setActiveTab(item.id)}
                   className={`flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition ${
                     activeTab === item.id
-                      ? 'bg-blue-700 text-white shadow-blue-200'
-                      : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700'
+                      ? 'bg-emerald-success text-white shadow-emerald-success/30'
+                      : 'bg-emerald-success/80 text-white shadow-emerald-success/20 hover:bg-emerald-success'
                   }`}
                 >
                   {item.icon}
                 </button>
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">
+                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-light">
                   {item.label}
                 </span>
               </div>
@@ -599,7 +628,7 @@ export default function Page() {
                 type="button"
                 onClick={() => setActiveTab(item.id)}
                 className={`flex min-w-[64px] flex-col items-center gap-1 rounded-2xl px-3 py-2 transition ${
-                  activeTab === item.id ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'
+                  activeTab === item.id ? 'text-champagne' : 'text-text-muted hover:text-text-secondary'
                 }`}
               >
                 {item.icon}
@@ -612,6 +641,7 @@ export default function Page() {
         </div>
       </nav>
 
+      {/* Role menu backdrop */}
       {roleOpen && (
         <button
           type="button"

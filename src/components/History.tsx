@@ -17,63 +17,7 @@ import {
   X,
 } from 'lucide-react';
 
-type ReceiptRow = {
-  id: string;
-  userid?: string;
-
-  vendor_name?: string;
-  vendorname?: string;
-
-  vendor_address?: string;
-  vendoraddress?: string;
-
-  business_number?: string;
-  vendortaxnumber?: string;
-
-  transaction_date?: string;
-  transactiondate?: string;
-
-  transaction_time?: string;
-  transactiontime?: string;
-
-  category?: string;
-  notes?: string;
-
-  payment_method?: string;
-  paymentmethod?: string;
-
-  card_last_four?: string;
-  cardlastfour?: string;
-
-  currency?: string;
-
-  subtotal?: number;
-  tax_amount?: number;
-  taxamount?: number;
-  pst_amount?: number;
-  pstamount?: number;
-  total_amount?: number;
-  totalamount?: number;
-
-  job_code?: string;
-  job_codes?: string;
-  vehicle_id?: string;
-  business_use_percent?: number;
-
-  line_items?: Array<Record<string, unknown>> | string;
-
-  integrity_hash?: string;
-  integrityhash?: string;
-
-  image_url?: string;
-  imageurl?: string;
-
-  confidence_score?: number;
-  confidencescore?: number;
-
-  created_at?: string;
-  createdat?: string;
-};
+import type { ReceiptRow } from '@/lib/types';
 
 type HistoryProps = {
   receipts: ReceiptRow[];
@@ -81,60 +25,9 @@ type HistoryProps = {
   onUpdate?: () => Promise<void> | void;
 };
 
-function getVendorName(receipt: ReceiptRow): string {
-  return receipt.vendor_name ?? receipt.vendorname ?? 'Unknown Vendor';
-}
-
-function getVendorAddress(receipt: ReceiptRow): string {
-  return receipt.vendor_address ?? receipt.vendoraddress ?? '';
-}
-
-function getBusinessNumber(receipt: ReceiptRow): string {
-  return receipt.business_number ?? receipt.vendortaxnumber ?? '';
-}
-
-function getTransactionDate(receipt: ReceiptRow): string {
-  return receipt.transaction_date ?? receipt.transactiondate ?? '';
-}
-
-function getTransactionTime(receipt: ReceiptRow): string {
-  return receipt.transaction_time ?? receipt.transactiontime ?? '';
-}
-
-function getPaymentMethod(receipt: ReceiptRow): string {
-  return receipt.payment_method ?? receipt.paymentmethod ?? '';
-}
-
-function getCardLastFour(receipt: ReceiptRow): string {
-  return receipt.card_last_four ?? receipt.cardlastfour ?? '';
-}
-
-function getSubtotal(receipt: ReceiptRow): number {
-  return receipt.subtotal ?? 0;
-}
-
-function getTaxAmount(receipt: ReceiptRow): number {
-  return receipt.tax_amount ?? receipt.taxamount ?? 0;
-}
-
-function getPstAmount(receipt: ReceiptRow): number {
-  return receipt.pst_amount ?? receipt.pstamount ?? 0;
-}
-
-function getTotalAmount(receipt: ReceiptRow): number {
-  return receipt.total_amount ?? receipt.totalamount ?? 0;
-}
-
-function getIntegrityHash(receipt: ReceiptRow): string {
-  return receipt.integrity_hash ?? receipt.integrityhash ?? '';
-}
-
-function getImageUrl(receipt: ReceiptRow): string {
-  return receipt.image_url ?? receipt.imageurl ?? '';
-}
-
-function getConfidenceScore(receipt: ReceiptRow): number {
-  return receipt.confidence_score ?? receipt.confidencescore ?? 0;
+function toNumber(v: unknown): number {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function formatCurrency(value: number, currency = 'CAD'): string {
@@ -144,12 +37,10 @@ function formatCurrency(value: number, currency = 'CAD'): string {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
-function formatDate(value?: string): string {
+function formatDate(value?: string | null): string {
   if (!value) return 'No date';
-
   const parts = value.split('-').map(Number);
   if (parts.length !== 3 || parts.some(Number.isNaN)) return value;
-
   const [year, month, day] = parts;
   return new Date(year, month - 1, day).toLocaleDateString('en-CA', {
     year: 'numeric',
@@ -160,7 +51,7 @@ function formatDate(value?: string): string {
 
 function categoryColor(category?: string): string {
   const map: Record<string, string> = {
-    'Office Supplies': '#3b82f6',
+    'Office Supplies': '#bea98e',
     'Meals Entertainment': '#f59e0b',
     Travel: '#8b5cf6',
     Fuel: '#ef4444',
@@ -168,32 +59,29 @@ function categoryColor(category?: string): string {
     Supplies: '#06b6d4',
     'Software Subscriptions': '#ec4899',
     Utilities: '#f97316',
-    'General Expense': '#6b7280',
+    'General Expense': '#6b6560',
   };
-
-  return map[category ?? ''] ?? '#6b7280';
+  return map[category ?? ''] ?? '#6b6560';
 }
 
 function confidenceTone(score: number) {
   if (score >= 85) {
     return {
-      pill: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      panel: 'bg-emerald-50 border-emerald-100 text-emerald-800',
+      pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+      panel: 'bg-emerald-500/[0.06] border-emerald-500/20 text-emerald-300',
       label: 'High',
     };
   }
-
   if (score >= 60) {
     return {
-      pill: 'bg-amber-50 text-amber-700 border-amber-200',
-      panel: 'bg-amber-50 border-amber-100 text-amber-800',
+      pill: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+      panel: 'bg-amber-500/[0.06] border-amber-500/20 text-amber-300',
       label: 'Medium',
     };
   }
-
   return {
-    pill: 'bg-red-50 text-red-700 border-red-200',
-    panel: 'bg-red-50 border-red-100 text-red-800',
+    pill: 'bg-red-500/15 text-red-400 border-red-500/20',
+    panel: 'bg-red-500/[0.06] border-red-500/20 text-red-300',
     label: 'Low',
   };
 }
@@ -209,47 +97,53 @@ export default function History({
 
   const filteredReceipts = useMemo(() => {
     let items = [...receipts];
-
     const normalizedFilter = activeFilter.toLowerCase();
 
     if (normalizedFilter !== 'all') {
-      if (normalizedFilter === 'missing') {
+      if (normalizedFilter === 'missing' || normalizedFilter === 'missing-bn') {
         items = items.filter(
-          (receipt) =>
-            !getBusinessNumber(receipt).trim() ||
-            !getVendorName(receipt).trim() ||
-            !getTransactionDate(receipt).trim() ||
-            getTotalAmount(receipt) <= 0
+          (r) =>
+            !String(r.vendor_tax_number ?? '').trim() ||
+            !String(r.vendor_name ?? '').trim() ||
+            !String(r.transaction_date ?? '').trim() ||
+            toNumber(r.total_amount) <= 0
         );
       } else if (normalizedFilter === 'approved') {
-        items = items.filter((receipt) => getConfidenceScore(receipt) >= 85);
-      } else if (normalizedFilter === 'review') {
-        items = items.filter((receipt) => getConfidenceScore(receipt) < 85);
+        items = items.filter((r) => toNumber(r.confidence_score) >= 85);
+      } else if (normalizedFilter === 'review' || normalizedFilter === 'pending-review') {
+        items = items.filter((r) => toNumber(r.confidence_score) < 85);
+      } else if (normalizedFilter === 'flagged-audit') {
+        items = items.filter(
+          (r) =>
+            r.flagged_for_audit ||
+            r.math_mismatch_warning ||
+            r.duplicate_warning ||
+            r.thermal_warning ||
+            (toNumber(r.cra_readiness_score) > 0 && toNumber(r.cra_readiness_score) < 70)
+        );
       } else {
         items = items.filter(
-          (receipt) => (receipt.category ?? 'Uncategorized').toLowerCase() === normalizedFilter
+          (r) => (r.category ?? 'Uncategorized').toLowerCase() === normalizedFilter
         );
       }
     }
 
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      items = items.filter((receipt) => {
+      items = items.filter((r) => {
         const fields = [
-          getVendorName(receipt),
-          getVendorAddress(receipt),
-          getBusinessNumber(receipt),
-          getTransactionDate(receipt),
-          receipt.category ?? '',
-          receipt.notes ?? '',
-          getPaymentMethod(receipt),
-          getCardLastFour(receipt),
-          receipt.job_code ?? '',
-          receipt.job_codes ?? '',
-          receipt.vehicle_id ?? '',
-          receipt.id,
+          r.vendor_name ?? '',
+          r.vendor_address ?? '',
+          r.vendor_tax_number ?? '',
+          r.transaction_date ?? '',
+          r.category ?? '',
+          r.notes ?? '',
+          r.payment_method ?? '',
+          r.card_last_four ?? '',
+          r.job_code ?? '',
+          r.vehicle_id ?? '',
+          r.id,
         ];
-
         return fields.some((value) => value.toLowerCase().includes(q));
       });
     }
@@ -269,11 +163,11 @@ export default function History({
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-4 fade-in">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Receipts</h2>
-            <p className="mt-0.5 text-xs text-slate-400">
+            <h2 className="text-xl font-bold text-text-primary">Receipts</h2>
+            <p className="mt-0.5 text-xs text-text-muted">
               {filteredReceipts.length} record{filteredReceipts.length === 1 ? '' : 's'} shown
             </p>
           </div>
@@ -282,30 +176,30 @@ export default function History({
             type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-blue-200 hover:text-blue-600 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface px-3 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:border-glass-border-hover hover:text-champagne disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <Search className="h-4 w-4 text-slate-400" />
+        <div className="rounded-2xl border border-glass-border bg-surface p-3 shadow-sm">
+          <div className="flex items-center gap-3 rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5">
+            <Search className="h-4 w-4 text-text-muted" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search vendor, date, BN, amount, category..."
-              className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+              className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
             />
           </div>
         </div>
 
         {filteredReceipts.length === 0 ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <Receipt className="mx-auto mb-3 h-12 w-12 text-slate-200" />
-            <p className="text-sm font-medium text-slate-500">
+          <div className="rounded-3xl border border-glass-border bg-surface p-12 text-center shadow-sm">
+            <Receipt className="mx-auto mb-3 h-12 w-12 text-text-muted/30" />
+            <p className="text-sm font-medium text-text-secondary">
               {receipts.length === 0
                 ? 'No receipts yet. Scan your first receipt to get started.'
                 : 'No receipts match your current filter or search.'}
@@ -314,24 +208,24 @@ export default function History({
         ) : (
           <div className="space-y-3">
             {filteredReceipts.map((receipt) => {
-              const tone = confidenceTone(getConfidenceScore(receipt));
-              const vendor = getVendorName(receipt);
-              const total = getTotalAmount(receipt);
+              const tone = confidenceTone(toNumber(receipt.confidence_score));
+              const vendor = receipt.vendor_name ?? 'Unknown Vendor';
+              const total = toNumber(receipt.total_amount);
               const category = receipt.category ?? 'Uncategorized';
-              const cardLastFour = getCardLastFour(receipt);
-              const hasHash = Boolean(getIntegrityHash(receipt));
-              const missingBN = !getBusinessNumber(receipt).trim();
+              const cardLastFour = receipt.card_last_four ?? '';
+              const hasHash = Boolean(receipt.integrity_hash);
+              const missingBN = !String(receipt.vendor_tax_number ?? '').trim();
 
               return (
                 <button
                   key={receipt.id}
                   type="button"
                   onClick={() => setSelectedReceipt(receipt)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md"
+                  className="w-full rounded-2xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-glass-border-hover hover:bg-surface-raised"
                 >
                   <div className="flex items-start gap-3">
                     <div
-                      className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
+                      className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-xs font-bold text-obsidian"
                       style={{ backgroundColor: categoryColor(category) }}
                     >
                       {vendor.slice(0, 2).toUpperCase()}
@@ -339,11 +233,11 @@ export default function History({
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-slate-900">{vendor}</p>
+                        <p className="truncate text-sm font-semibold text-text-primary">{vendor}</p>
 
                         {hasHash && (
                           <span title="SHA-256 integrity hash stored">
-                            <Fingerprint className="h-3.5 w-3.5 text-emerald-500" />
+                            <Fingerprint className="h-3.5 w-3.5 text-emerald-light" />
                           </span>
                         )}
 
@@ -354,30 +248,30 @@ export default function History({
                         </span>
                       </div>
 
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                        <span>{formatDate(getTransactionDate(receipt))}</span>
-                        <span className="h-1 w-1 rounded-full bg-slate-200" />
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                        <span>{formatDate(receipt.transaction_date)}</span>
+                        <span className="h-1 w-1 rounded-full bg-text-muted/30" />
                         <span>{category}</span>
                         {cardLastFour && (
                           <>
-                            <span className="h-1 w-1 rounded-full bg-slate-200" />
+                            <span className="h-1 w-1 rounded-full bg-text-muted/30" />
                             <span>•••• {cardLastFour}</span>
                           </>
                         )}
                         {missingBN && (
                           <>
-                            <span className="h-1 w-1 rounded-full bg-slate-200" />
-                            <span className="font-medium text-amber-600">Missing GST/BN</span>
+                            <span className="h-1 w-1 rounded-full bg-text-muted/30" />
+                            <span className="font-medium text-amber-400">Missing GST/BN</span>
                           </>
                         )}
                       </div>
                     </div>
 
                     <div className="flex flex-shrink-0 items-center gap-2">
-                      <span className="text-sm font-bold text-blue-600">
+                      <span className="text-sm font-bold tabular-nums text-champagne">
                         {formatCurrency(total, receipt.currency ?? 'CAD')}
                       </span>
-                      <ChevronRight className="h-4 w-4 text-slate-300" />
+                      <ChevronRight className="h-4 w-4 text-text-muted" />
                     </div>
                   </div>
                 </button>
@@ -397,25 +291,27 @@ export default function History({
   );
 }
 
+/* ─── Detail Modal ─── */
+
 type ReceiptDetailModalProps = {
   receipt: ReceiptRow;
   onClose: () => void;
 };
 
 function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
-  const score = getConfidenceScore(receipt);
+  const score = toNumber(receipt.confidence_score);
   const tone = confidenceTone(score);
 
   const rows = [
     {
       label: 'Date',
-      value: formatDate(getTransactionDate(receipt)),
+      value: formatDate(receipt.transaction_date),
       icon: <CalendarDays className="h-4 w-4" />,
     },
-    getTransactionTime(receipt)
+    receipt.transaction_time
       ? {
           label: 'Time',
-          value: getTransactionTime(receipt),
+          value: receipt.transaction_time,
           icon: <CalendarDays className="h-4 w-4" />,
         }
       : null,
@@ -426,52 +322,52 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
     },
     {
       label: 'Subtotal',
-      value: formatCurrency(getSubtotal(receipt), receipt.currency ?? 'CAD'),
+      value: formatCurrency(toNumber(receipt.subtotal), receipt.currency ?? 'CAD'),
       icon: <Receipt className="h-4 w-4" />,
     },
     {
       label: 'GST',
-      value: formatCurrency(getTaxAmount(receipt), receipt.currency ?? 'CAD'),
+      value: formatCurrency(toNumber(receipt.tax_amount), receipt.currency ?? 'CAD'),
       icon: <Receipt className="h-4 w-4" />,
     },
     {
       label: 'PST/HST',
-      value: formatCurrency(getPstAmount(receipt), receipt.currency ?? 'CAD'),
+      value: formatCurrency(toNumber(receipt.pst_amount), receipt.currency ?? 'CAD'),
       icon: <Receipt className="h-4 w-4" />,
     },
     {
       label: 'Total',
-      value: formatCurrency(getTotalAmount(receipt), receipt.currency ?? 'CAD'),
+      value: formatCurrency(toNumber(receipt.total_amount), receipt.currency ?? 'CAD'),
       icon: <Receipt className="h-4 w-4" />,
     },
     {
       label: 'Payment',
       value: [
-        getPaymentMethod(receipt),
-        getCardLastFour(receipt) ? `•••• ${getCardLastFour(receipt)}` : '',
+        receipt.payment_method ?? '',
+        receipt.card_last_four ? `•••• ${receipt.card_last_four}` : '',
       ]
         .filter(Boolean)
         .join(' '),
       icon: <CreditCard className="h-4 w-4" />,
     },
-    getVendorAddress(receipt)
+    receipt.vendor_address
       ? {
           label: 'Address',
-          value: getVendorAddress(receipt),
+          value: receipt.vendor_address,
           icon: <MapPin className="h-4 w-4" />,
         }
       : null,
-    getBusinessNumber(receipt)
+    receipt.vendor_tax_number
       ? {
           label: 'Business Number',
-          value: getBusinessNumber(receipt),
+          value: receipt.vendor_tax_number,
           icon: <Fingerprint className="h-4 w-4" />,
         }
       : null,
-    receipt.job_code || receipt.job_codes
+    receipt.job_code
       ? {
           label: 'Job Code',
-          value: receipt.job_code ?? receipt.job_codes ?? '',
+          value: receipt.job_code,
           icon: <Tag className="h-4 w-4" />,
         }
       : null,
@@ -488,32 +384,32 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
     icon: React.ReactNode;
   }>;
 
-  const imageUrl = getImageUrl(receipt);
-  const integrityHash = getIntegrityHash(receipt);
+  const imageUrl = receipt.image_url ?? '';
+  const integrityHash = receipt.integrity_hash ?? '';
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-xl sm:items-center"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-2xl sm:rounded-3xl"
+        className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-glass-border bg-surface shadow-2xl sm:max-w-2xl sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-glass-border px-5 py-4">
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-bold text-slate-900">
-              {getVendorName(receipt)}
+            <h3 className="truncate text-lg font-bold text-text-primary">
+              {receipt.vendor_name ?? 'Unknown Vendor'}
             </h3>
-            <p className="mt-0.5 text-xs text-slate-400">
-              {formatDate(getTransactionDate(receipt))}
+            <p className="mt-0.5 text-xs text-text-muted">
+              {formatDate(receipt.transaction_date)}
             </p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-xl p-2 text-text-muted transition hover:bg-surface-raised hover:text-text-secondary"
           >
             <X className="h-5 w-5" />
           </button>
@@ -521,7 +417,7 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
 
         <div className="flex-1 overflow-y-auto">
           {imageUrl ? (
-            <div className="border-b border-slate-100 bg-slate-50">
+            <div className="border-b border-glass-border bg-obsidian">
               <img
                 src={imageUrl}
                 alt="Receipt"
@@ -529,9 +425,9 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
               />
             </div>
           ) : (
-            <div className="border-b border-slate-100 bg-slate-50 px-5 py-8 text-center">
-              <Eye className="mx-auto mb-2 h-8 w-8 text-slate-300" />
-              <p className="text-sm text-slate-400">No image preview available.</p>
+            <div className="border-b border-glass-border bg-surface-raised px-5 py-8 text-center">
+              <Eye className="mx-auto mb-2 h-8 w-8 text-text-muted/30" />
+              <p className="text-sm text-text-muted">No image preview available.</p>
             </div>
           )}
 
@@ -539,7 +435,7 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
             <div className={`rounded-2xl border px-4 py-3 ${tone.panel}`}>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-wide">AI Confidence</p>
-                <p className="text-sm font-bold">{score}</p>
+                <p className="text-sm font-bold tabular-nums">{score}</p>
               </div>
               <p className="mt-1.5 text-xs leading-relaxed">
                 {score >= 85
@@ -550,20 +446,20 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
               </p>
             </div>
 
-            {!getBusinessNumber(receipt) && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+            {!receipt.vendor_tax_number && (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3">
                 <div className="flex items-start gap-2">
-                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                  <p className="text-xs leading-relaxed">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
+                  <p className="text-xs leading-relaxed text-amber-300">
                     GST/BN is missing on this receipt. Review before claiming input tax credits.
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="rounded-2xl border border-slate-200 bg-white">
-              <div className="border-b border-slate-100 px-4 py-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+            <div className="rounded-2xl border border-glass-border bg-surface-raised">
+              <div className="border-b border-glass-border px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-text-muted">
                   Receipt details
                 </p>
               </div>
@@ -572,15 +468,15 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
                 {rows.map((row) => (
                   <div
                     key={row.label}
-                    className="flex items-start justify-between gap-4 border-b border-slate-50 py-3 last:border-0"
+                    className="flex items-start justify-between gap-4 border-b border-glass-border py-3 last:border-0"
                   >
-                    <div className="flex items-center gap-2 text-slate-400">
+                    <div className="flex items-center gap-2 text-text-muted">
                       {row.icon}
                       <span className="text-xs font-semibold uppercase tracking-wide">
                         {row.label}
                       </span>
                     </div>
-                    <span className="max-w-[58%] break-words text-right text-sm font-semibold text-slate-900">
+                    <span className="max-w-[58%] break-words text-right text-sm font-semibold tabular-nums text-text-primary">
                       {row.value || '—'}
                     </span>
                   </div>
@@ -589,23 +485,23 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
             </div>
 
             {receipt.notes && (
-              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-blue-500">
+              <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] p-4">
+                <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-champagne">
                   Business purpose
                 </p>
-                <p className="text-sm text-blue-900">{receipt.notes}</p>
+                <p className="text-sm text-text-secondary">{receipt.notes}</p>
               </div>
             )}
 
             {integrityHash && (
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
                 <div className="mb-1.5 flex items-center gap-2">
-                  <Fingerprint className="h-4 w-4 text-emerald-500" />
-                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-600">
+                  <Fingerprint className="h-4 w-4 text-emerald-light" />
+                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-light">
                     SHA-256 integrity hash
                   </p>
                 </div>
-                <p className="break-all font-mono text-[11px] leading-relaxed text-emerald-700">
+                <p className="break-all font-mono text-[11px] leading-relaxed text-emerald-300">
                   {integrityHash}
                 </p>
               </div>

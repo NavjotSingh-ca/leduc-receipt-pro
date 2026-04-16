@@ -13,19 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-
-type AuditLogRow = {
-  id: string;
-  userid?: string;
-  action?: string;
-  details?: string;
-  createdat?: string;
-  created_at?: string;
-};
-
-function getCreatedAt(log: AuditLogRow): string {
-  return log.createdat ?? log.created_at ?? '';
-}
+import type { AuditLogRow } from '@/lib/types';
 
 function formatDateTime(value?: string): string {
   if (!value) return 'Unknown time';
@@ -49,8 +37,8 @@ function getActionMeta(action?: string) {
     return {
       label: 'Export',
       icon: <Download className="h-4 w-4" />,
-      pill: 'bg-blue-50 text-blue-700 border-blue-200',
-      iconWrap: 'bg-blue-100 text-blue-600',
+      pill: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+      iconWrap: 'bg-blue-500/15 text-blue-400',
     };
   }
 
@@ -63,8 +51,8 @@ function getActionMeta(action?: string) {
     return {
       label: 'Create',
       icon: <FilePlus2 className="h-4 w-4" />,
-      pill: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      iconWrap: 'bg-emerald-100 text-emerald-600',
+      pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+      iconWrap: 'bg-emerald-500/15 text-emerald-400',
     };
   }
 
@@ -72,8 +60,8 @@ function getActionMeta(action?: string) {
     return {
       label: 'Delete',
       icon: <Trash2 className="h-4 w-4" />,
-      pill: 'bg-red-50 text-red-700 border-red-200',
-      iconWrap: 'bg-red-100 text-red-600',
+      pill: 'bg-red-500/15 text-red-400 border-red-500/20',
+      iconWrap: 'bg-red-500/15 text-red-400',
     };
   }
 
@@ -81,16 +69,16 @@ function getActionMeta(action?: string) {
     return {
       label: 'View',
       icon: <Eye className="h-4 w-4" />,
-      pill: 'bg-violet-50 text-violet-700 border-violet-200',
-      iconWrap: 'bg-violet-100 text-violet-600',
+      pill: 'bg-violet-500/15 text-violet-400 border-violet-500/20',
+      iconWrap: 'bg-violet-500/15 text-violet-400',
     };
   }
 
   return {
     label: 'Integrity',
     icon: <Fingerprint className="h-4 w-4" />,
-    pill: 'bg-slate-100 text-slate-700 border-slate-200',
-    iconWrap: 'bg-slate-200 text-slate-700',
+    pill: 'bg-white/5 text-text-secondary border-glass-border',
+    iconWrap: 'bg-white/5 text-text-secondary',
   };
 }
 
@@ -117,8 +105,8 @@ export default function AuditTrail() {
       const { data, error } = await supabase
         .from('auditlogs')
         .select('*')
-        .eq('userid', session.user.id)
-        .order('createdat', { ascending: false })
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
         .limit(100);
 
       if (error) throw error;
@@ -137,11 +125,11 @@ export default function AuditTrail() {
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 fade-in">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Audit Trail</h2>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <h2 className="text-xl font-bold text-text-primary">Audit Trail</h2>
+          <p className="mt-0.5 text-sm text-text-secondary">
             View key record events, exports, and integrity-related actions.
           </p>
         </div>
@@ -150,19 +138,19 @@ export default function AuditTrail() {
           type="button"
           onClick={loadLogs}
           disabled={loading}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-blue-200 hover:text-blue-600 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-surface px-3 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:border-glass-border-hover hover:text-champagne disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           <span>Refresh</span>
         </button>
       </div>
 
-      <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+      <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] p-4">
         <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600" />
+          <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-champagne" />
           <div>
-            <p className="text-sm font-semibold text-blue-900">Compliance record view</p>
-            <p className="mt-1 text-sm leading-6 text-blue-800">
+            <p className="text-sm font-semibold text-text-primary">Compliance record view</p>
+            <p className="mt-1 text-sm leading-6 text-text-secondary">
               This screen helps show who did what and when, including export activity and saved receipt events.
             </p>
           </div>
@@ -170,24 +158,24 @@ export default function AuditTrail() {
       </div>
 
       {loading ? (
-        <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-3xl border border-slate-200 bg-white">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <p className="text-sm font-medium text-slate-500">Loading audit events...</p>
+        <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-3xl border border-glass-border bg-surface">
+          <Loader2 className="h-8 w-8 animate-spin text-champagne" />
+          <p className="text-sm font-medium text-text-secondary">Loading audit events…</p>
         </div>
       ) : error ? (
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-6">
+        <div className="rounded-3xl border border-red-500/20 bg-red-500/[0.06] p-6">
           <div className="flex items-start gap-3">
-            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-400" />
             <div>
-              <p className="text-sm font-semibold text-red-800">Could not load audit trail</p>
-              <p className="mt-1 text-sm text-red-700">{error}</p>
+              <p className="text-sm font-semibold text-red-300">Could not load audit trail</p>
+              <p className="mt-1 text-sm text-red-400">{error}</p>
             </div>
           </div>
         </div>
       ) : logs.length === 0 ? (
-        <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-          <ShieldCheck className="mx-auto mb-3 h-12 w-12 text-slate-200" />
-          <p className="text-sm font-medium text-slate-500">
+        <div className="rounded-3xl border border-glass-border bg-surface p-12 text-center shadow-sm">
+          <ShieldCheck className="mx-auto mb-3 h-12 w-12 text-text-muted/30" />
+          <p className="text-sm font-medium text-text-secondary">
             No audit events yet. Actions like saving or exporting receipts will appear here.
           </p>
         </div>
@@ -199,7 +187,7 @@ export default function AuditTrail() {
             return (
               <div
                 key={log.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-2xl border border-glass-border bg-surface p-4 shadow-sm"
               >
                 <div className="flex items-start gap-3">
                   <div
@@ -210,7 +198,7 @@ export default function AuditTrail() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-slate-900">
+                      <p className="text-sm font-semibold text-text-primary">
                         {log.action || 'Unknown action'}
                       </p>
                       <span
@@ -220,12 +208,12 @@ export default function AuditTrail() {
                       </span>
                     </div>
 
-                    <p className="mt-1 text-xs text-slate-400">
-                      {formatDateTime(getCreatedAt(log))}
+                    <p className="mt-1 text-xs text-text-muted">
+                      {formatDateTime(log.created_at)}
                     </p>
 
                     {log.details && (
-                      <p className="mt-3 text-sm leading-6 text-slate-600">
+                      <p className="mt-3 text-sm leading-6 text-text-secondary">
                         {log.details}
                       </p>
                     )}
