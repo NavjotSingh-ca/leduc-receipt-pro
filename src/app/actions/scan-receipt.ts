@@ -1,7 +1,6 @@
 'use server';
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { createHash } from 'crypto';
 
 export interface ReceiptLineItem {
   description: string;
@@ -450,11 +449,6 @@ function computeConfidenceScore(options: {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function createDuplicateHash(vendorName: string, transactionDate: string, totalAmount: number): string {
-  const normalized = `${vendorName.trim().toLowerCase()}|${transactionDate.trim()}|${totalAmount.toFixed(2)}`;
-  return createHash('sha256').update(normalized).digest('hex');
-}
-
 function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
   const vendor_name = toStr(raw.vendor_name) || 'Unknown Vendor';
   const vendor_address = toStr(raw.vendor_address);
@@ -537,7 +531,7 @@ function sanitize(raw: Record<string, unknown>): ScannedReceiptData {
     math_mismatch_warning,
   });
 
-  const duplicate_hash = createDuplicateHash(vendor_name, transaction_date, total_amount);
+  const duplicate_hash = '';
 
   return {
     vendor_name,

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, ShieldCheck, Upload } from 'lucide-react';
 
 import { scanReceipt } from '@/app/actions/scan-receipt';
+import { generateDuplicateHash } from '@/lib/hash';
 import { supabase } from '@/lib/supabase';
 
 import ManualCropper from './scanner/ManualCropper';
@@ -255,15 +256,13 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     };
   }
 
-  function buildDuplicateHash(receiptForm: ReceiptForm) {
-    const vendor = receiptForm.vendor_name.trim().toLowerCase().replace(/\s+/g, ' ');
-    const date = receiptForm.transaction_date || '';
-    const total = Number(receiptForm.total_amount || 0).toFixed(2);
-    return `${vendor}|${date}|${total}`;
-  }
 
   async function findDuplicateCandidate(receiptForm: ReceiptForm, integrityHash: string): Promise<ReceiptRow | null> {
-    const duplicateHash = buildDuplicateHash(receiptForm);
+    const duplicateHash = await generateDuplicateHash(
+      receiptForm.vendor_name,
+      receiptForm.transaction_date,
+      receiptForm.total_amount,
+    );
 
     const { data, error } = await supabase
       .from('receipts')
@@ -333,13 +332,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       cra_readiness_score: readinessScore,
       thermal_warning: Boolean(result.thermal_warning),
       document_type: 'receipt',
-      duplicate_warning: false,
-      duplicate_hash: buildDuplicateHash({
-        ...prev,
-        vendor_name: String(result.vendor_name ?? ''),
-        transaction_date: String(result.transaction_date ?? prev.transaction_date),
-        total_amount: totalAmount,
-      } as ReceiptForm),
+      duplicate_hash: '', // Handled upstream or during save. ScannerForm uses formData state.
       math_mismatch_warning: mathMismatchWarning,
       missing_bn_warning: missingBnWarning,
       capture_source: prev.capture_source,
@@ -442,7 +435,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
     try {
       const integrityHash = await computeSHA256(imageSrc);
-      const duplicateHash = buildDuplicateHash(formData);
+      const duplicateHash = await generateDuplicateHash(
+        formData.vendor_name,
+        formData.transaction_date,
+        formData.total_amount,
+      );
 
       if (!skipDuplicateCheck) {
         const duplicate = await findDuplicateCandidate(
@@ -498,7 +495,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         throw new Error(insertError.message);
       }
 
-      await supabase.from('auditlogs').insert({
+      await supabase.from('audit_logs').insert({
         user_id: user.id,
         action: 'receiptcreated',
         details: `Receipt saved: ${payload.vendor_name} ${payload.transaction_date} ${payload.total_amount.toFixed(2)} SHA256 ${integrityHash.slice(0, 16)}...`,

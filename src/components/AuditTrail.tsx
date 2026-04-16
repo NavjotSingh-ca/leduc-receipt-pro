@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   Download,
+  Edit3,
   Eye,
   FilePlus2,
   Fingerprint,
@@ -56,6 +57,15 @@ function getActionMeta(action?: string) {
     };
   }
 
+  if (normalized.includes('edit') || normalized.includes('update')) {
+    return {
+      label: 'Edit',
+      icon: <Edit3 className="h-4 w-4" />,
+      pill: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+      iconWrap: 'bg-amber-500/15 text-amber-400',
+    };
+  }
+
   if (normalized.includes('delete') || normalized.includes('remove')) {
     return {
       label: 'Delete',
@@ -103,7 +113,7 @@ export default function AuditTrail() {
       }
 
       const { data, error } = await supabase
-        .from('auditlogs')
+        .from('audit_logs')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })

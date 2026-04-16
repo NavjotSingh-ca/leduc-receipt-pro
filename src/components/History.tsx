@@ -6,18 +6,21 @@ import {
   CalendarDays,
   ChevronRight,
   CreditCard,
+  Edit3,
   Eye,
   Fingerprint,
   Loader2,
   MapPin,
   Receipt,
   RefreshCw,
+  Save,
   Search,
   Tag,
   X,
 } from 'lucide-react';
 
 import type { ReceiptRow } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
 
 type HistoryProps = {
   receipts: ReceiptRow[];
@@ -301,6 +304,68 @@ type ReceiptDetailModalProps = {
 function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
   const score = toNumber(receipt.confidence_score);
   const tone = confidenceTone(score);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesValue, setNotesValue] = useState(receipt.notes ?? '');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState(false);
+
+  /**
+   * Archive-before-update: writes the current row to receipt_history,
+   * then updates receipts. If the archive insert fails, the update
+   * is never attempted (Legal Fortress immutable-history pattern).
+   */
+  async function handleSaveEdit() {
+    setEditSaving(true);
+    setEditError('');
+    setEditSuccess(false);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Step 1 — Archive the current version FIRST
+      const { error: archiveError } = await supabase
+        .from('receipt_history')
+        .insert({
+          receipt_id:     receipt.id,
+          vendor_name:    receipt.vendor_name,
+          transaction_date: receipt.transaction_date,
+          total_amount:   receipt.total_amount,
+          category:       receipt.category,
+          notes:          receipt.notes,
+          duplicate_hash: receipt.duplicate_hash,
+          integrity_hash: receipt.integrity_hash,
+          archived_at:    new Date().toISOString(),
+          archived_by:    user?.id ?? 'system',
+        });
+
+      if (archiveError) {
+        throw new Error(`History archive failed — update aborted: ${archiveError.message}`);
+      }
+
+      // Step 2 — Update ONLY after successful archive
+      const { error: updateError } = await supabase
+        .from('receipts')
+        .update({ notes: notesValue, updated_at: new Date().toISOString() })
+        .eq('id', receipt.id);
+
+      if (updateError) throw new Error(updateError.message);
+
+      // Step 3 — Record to Audit Logs
+      await supabase.from('audit_logs').insert({
+        user_id: user?.id,
+        action: 'receiptedited',
+        details: `Receipt updated: Notes modified for ${receipt.vendor_name}. Previous version archived to history.`,
+      });
+
+      setEditSuccess(true);
+      setEditingNotes(false);
+    } catch (err: any) {
+      setEditError(err?.message ?? 'Edit failed.');
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   const rows = [
     {
@@ -506,6 +571,68 @@ function ReceiptDetailModal({ receipt, onClose }: ReceiptDetailModalProps) {
                 </p>
               </div>
             )}
+
+            {/* ── Legal Fortress: Archive-before-update Notes Edit ── */}
+            <div className="rounded-2xl border border-glass-border bg-surface-raised">
+              <div className="flex items-center justify-between gap-3 border-b border-glass-border px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-text-muted">Business purpose</p>
+                {!editingNotes && (
+                  <button
+                    type="button"
+                    onClick={() => { setEditingNotes(true); setEditSuccess(false); setEditError(''); }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-glass-border bg-surface px-2.5 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-glass-border-hover hover:text-champagne"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                )}
+              </div>
+
+              <div className="p-4">
+                {editingNotes ? (
+                  <div className="space-y-3">
+                    <textarea
+                      rows={4}
+                      value={notesValue}
+                      onChange={(e) => setNotesValue(e.target.value)}
+                      className="w-full resize-none rounded-xl border border-glass-border bg-surface px-3 py-2.5 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15"
+                      placeholder="Describe the business purpose of this expense."
+                    />
+                    {editError && (
+                      <p className="text-xs text-red-400">{editError}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveEdit}
+                        disabled={editSaving}
+                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-success px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:opacity-60"
+                      >
+                        {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {editSaving ? 'Archiving & saving…' : 'Save edit'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setEditingNotes(false); setNotesValue(receipt.notes ?? ''); setEditError(''); }}
+                        className="rounded-xl border border-glass-border bg-surface px-3 py-2.5 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-[11px] leading-5 text-text-muted">
+                      The current version will be archived to <span className="font-mono text-champagne">receipt_history</span> before this update is applied.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {editSuccess && (
+                      <p className="mb-2 text-xs font-medium text-emerald-light">Edit saved and previous version archived.</p>
+                    )}
+                    <p className="text-sm text-text-secondary">{notesValue || <span className="italic text-text-muted">No business purpose recorded.</span>}</p>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>

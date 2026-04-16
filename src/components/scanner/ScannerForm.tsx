@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertTriangle, ChevronDown, FileText, Hash, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, FileText, Hash, Plus, Trash2 } from 'lucide-react';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
 import {
@@ -45,7 +45,13 @@ export default function ScannerForm({
   onSave,
 }: ScannerFormProps) {
   const [refineOpen, setRefineOpen] = useState(false);
+  const [isConfirmed, setIsConfirmed] = useState(false);
   const lineItems = Array.isArray(formData.line_items) ? formData.line_items : [];
+
+  // Reset the confirmation checkbox whenever a new scan loads (vendor or date changes)
+  useEffect(() => {
+    setIsConfirmed(false);
+  }, [formData.vendor_name, formData.transaction_date]);
 
   const missingBN = !String(formData.business_number ?? '').trim() || Boolean(formData.missing_bn_warning);
   const mathMismatch = Boolean(formData.math_mismatch_warning);
@@ -574,10 +580,42 @@ export default function ScannerForm({
           </div>
         </section>
 
+        {/* ── Legal Fortress: Confirmation Checkbox Gate ── */}
+        <button
+          type="button"
+          onClick={() => setIsConfirmed((v) => !v)}
+          className={[
+            'flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition',
+            isConfirmed
+              ? 'border-champagne/30 bg-champagne/[0.06]'
+              : 'border-glass-border bg-surface-raised hover:border-glass-border-hover',
+          ].join(' ')}
+        >
+          <div
+            className={[
+              'mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border transition',
+              isConfirmed
+                ? 'border-champagne bg-champagne text-obsidian'
+                : 'border-text-muted bg-surface',
+            ].join(' ')}
+          >
+            {isConfirmed && <CheckCircle2 className="h-3.5 w-3.5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-text-primary">
+              I confirm that these figures are accurate and match the physical receipt.
+            </p>
+            <p className="mt-1 text-xs leading-5 text-text-muted">
+              Required before saving. This creates an auditable record.
+            </p>
+          </div>
+        </button>
+
         <button
           type="button"
           onClick={onSave}
-          disabled={saving}
+          disabled={saving || !isConfirmed}
+          aria-disabled={saving || !isConfirmed}
           className="inline-flex w-full items-center justify-center rounded-2xl bg-emerald-success px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? 'Saving receipt…' : 'Save receipt'}
