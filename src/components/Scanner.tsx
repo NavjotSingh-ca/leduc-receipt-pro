@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, Upload } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, Upload, Layers } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import JSZip from 'jszip';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { scanReceipt } from '@/app/actions/scan-receipt';
-import { generateDuplicateHash } from '@/lib/hash';
+import { scanReceipt, generateEmbedding } from '@/app/actions/scan-receipt';
+import { generateDuplicateHash, generateAuditEventHash } from '@/lib/hash';
 import { supabase } from '@/lib/supabase';
 
 import ManualCropper from './scanner/ManualCropper';
@@ -29,6 +31,7 @@ const STORAGE_BUCKET = 'receipt-images';
 export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const queryClient = useQueryClient();
 
   const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -45,8 +48,84 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const [pendingSave, setPendingSave] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
+  // Batch / JSZip Engine State
+  const [batchQueue, setBatchQueue] = useState<File[]>([]);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchProgress, setBatchProgress] = useState(0);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ bypassCheck, localFormData }: { bypassCheck: boolean, localFormData: ReceiptForm }) => {
+      if (!user) throw new Error('You must be logged in to save.');
+
+      const computedHash = await generateDuplicateHash(localFormData.vendor_name, localFormData.transaction_date, localFormData.total_amount);
+
+      if (!bypassCheck && duplicateCandidate === null) {
+        const { data: duplicates, error: dupCheckError } = await supabase
+          .from('receipts')
+          .select('id, created_at, vendor_name, total_amount')
+          .eq('duplicate_hash', computedHash)
+          .eq('user_id', user.id);
+
+        if (dupCheckError) throw dupCheckError;
+        if (duplicates && duplicates.length > 0) {
+          setDuplicateCandidate(duplicates[0] as ReceiptRow);
+          return { needsConfirmation: true };
+        }
+      }
+
+      let payload = {
+        ...localFormData,
+        user_id: user.id,
+        duplicate_hash: computedHash,
+        duplicate_warning: bypassCheck && Boolean(duplicateCandidate),
+      } as Record<string, unknown>;
+
+      const aiEmbedding = await generateEmbedding(JSON.stringify(localFormData));
+
+      const { data, error } = await supabase
+        .from('receipts')
+        .insert([payload])
+        .select('id')
+        .single();
+
+      if (error) throw error;
+
+      return { success: true };
+    },
+    onSuccess: (result) => {
+      if (result?.needsConfirmation) return;
+      queryClient.invalidateQueries({ queryKey: ['receipts'] });
+      setDuplicateCandidate(null);
+      setPendingSave(false);
+      
+      if (!isBatchProcessing) {
+        resetScanner();
+        onSaveSuccess();
+        showNotice('success', 'Receipt saved successfully.');
+      } else {
+        setImageSrc(null);
+        setFormData(createBlankReceiptForm());
+      }
+    },
+    onError: (error) => {
+      try {
+        const offlineQueue = JSON.parse(localStorage.getItem('receipt_offline_queue') || '[]');
+        offlineQueue.push({ timestamp: Date.now(), formData });
+        localStorage.setItem('receipt_offline_queue', JSON.stringify(offlineQueue));
+        showNotice('info', 'Network offline. Saved to local queue.');
+      } catch (locErr) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to save receipt.';
+        showNotice('error', errorMsg);
+      }
+    },
+    onSettled: () => {
+      setSaving(false);
+    }
+  });
 
   useEffect(() => {
     let active = true;
@@ -93,6 +172,10 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setDuplicateCandidate(null);
     setPendingSave(false);
     setHasAnalyzed(false);
+    setIsBatchProcessing(false);
+    setBatchQueue([]);
+    setBatchTotal(0);
+    setBatchProgress(0);
 
     if (cameraInputRef.current) cameraInputRef.current.value = '';
     if (galleryInputRef.current) galleryInputRef.current.value = '';
@@ -140,99 +223,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     ctx.drawImage(img, 0, 0, width, height);
 
     return canvas.toDataURL(outputMimeType, JPEG_QUALITY);
-  }
-
-  function normalizeFileName(name: string) {
-    return name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/-+/g, '-').toLowerCase();
-  }
-
-  function dataUrlToBlob(dataUrl: string): Blob {
-    const [meta, base64] = dataUrl.split(',');
-    const mime = meta.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return new Blob([bytes], { type: mime });
-  }
-
-  async function computeSHA256(dataUrl: string): Promise<string> {
-    const [, base64] = dataUrl.split(',');
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes.buffer);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  function toDbPayload(receiptForm: ReceiptForm, publicUrl: string, integrityHash: string) {
-    const now = new Date().toISOString();
-
-    return {
-      user_id: user?.id ?? '',
-      business_unit_id: receiptForm.business_unit_id || null,
-      vendor_name: receiptForm.vendor_name.trim(),
-      vendor_address: receiptForm.vendor_address.trim() || null,
-      vendor_tax_number: receiptForm.business_number.trim() || null,
-      total_amount: Number(receiptForm.total_amount || 0),
-      subtotal: Number(receiptForm.subtotal || 0),
-      tax_amount: Number(receiptForm.tax_amount || 0),
-      pst_amount: Number(receiptForm.pst_amount || 0),
-      transaction_date: receiptForm.transaction_date,
-      transaction_time: receiptForm.transaction_time || null,
-      payment_method: receiptForm.payment_method,
-      payment_reference: receiptForm.payment_reference.trim() || null,
-      card_last_four: receiptForm.card_last_four.trim() || null,
-      category: receiptForm.category,
-      notes: receiptForm.notes.trim(),
-      currency: receiptForm.currency,
-      image_url: publicUrl,
-      source_file_name: originalFileName || null,
-      source_file_type: 'image',
-      integrity_hash: integrityHash,
-      duplicate_hash: receiptForm.duplicate_hash || null,
-      confidence_score: Number(receiptForm.confidence_score || 0),
-      cra_readiness_score: Number(receiptForm.cra_readiness_score || 0),
-      thermal_warning: Boolean(receiptForm.thermal_warning),
-      capture_source: receiptForm.capture_source,
-      usage_type: receiptForm.usage_type,
-      business_use_percent: Number(receiptForm.business_use_percent || 0),
-      job_code: receiptForm.job_code.trim() || null,
-      vehicle_id: receiptForm.vehicle_id.trim() || null,
-      line_items: receiptForm.line_items ?? [],
-      /* ─── Suite II: Payment Context ─── */
-      paid_by: receiptForm.paid_by || null,
-      reimbursement_status: receiptForm.paid_by === 'employee_cash' ? 'pending' : null,
-      needs_reimbursement: receiptForm.paid_by === 'employee_cash',
-      approval_status: 'submitted',
-      updated_at: now,
-      created_at: now,
-    };
-  }
-
-  async function findDuplicateCandidate(receiptForm: ReceiptForm, integrityHash: string): Promise<ReceiptRow | null> {
-    const duplicateHash = await generateDuplicateHash(
-      receiptForm.vendor_name,
-      receiptForm.transaction_date,
-      receiptForm.total_amount,
-    );
-
-    const { data, error } = await supabase
-      .from('receipts')
-      .select('*')
-      .eq('user_id', user?.id ?? '')
-      .or(`integrity_hash.eq.${integrityHash},duplicate_hash.eq.${duplicateHash}`)
-      .limit(1)
-      .maybeSingle();
-
-    if (error) throw new Error(error.message);
-
-    return (data as ReceiptRow | null) ?? null;
   }
 
   function mergeScanData(result: Record<string, unknown>) {
@@ -305,6 +295,8 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       duplicate_hash: '',
       math_mismatch_warning: mathMismatchWarning,
       missing_bn_warning: missingBnWarning,
+      fraud_suspicion: Boolean(result.fraud_suspicion),
+      fraud_reason: String(result.fraud_reason ?? ''),
       capture_source: prev.capture_source,
       usage_type: prev.usage_type,
       business_use_percent: prev.business_use_percent,
@@ -367,12 +359,20 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
       if (!result.success) {
         showNotice('error', result.error);
+        if (isBatchProcessing) {
+          setTimeout(processNextBatchItem, 1000);
+        }
         return;
       }
 
       mergeScanData(result.data as unknown as Record<string, unknown>);
       setHasAnalyzed(true);
       showNotice('success', 'Receipt processed successfully. Please review the details below.');
+      
+      if (isBatchProcessing) {
+        await performSave(true);
+        setTimeout(processNextBatchItem, 1000);
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'AI processing failed.';
       showNotice('error', msg);
@@ -381,89 +381,13 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     }
   }
 
-  async function performSave(skipDuplicateCheck = false) {
-    if (!imageSrc) {
-      showNotice('error', 'Please capture a receipt before saving.');
-      return;
-    }
-
-    if (!user?.id) {
-      showNotice('error', 'You must be signed in to save receipts.');
-      return;
-    }
-
+  async function performSave(bypassCheck = false, finalFormData?: ReceiptForm) {
+    if (saving || (!imageSrc && batchQueue.length === 0)) return;
     setSaving(true);
     setNotice(null);
 
-    try {
-      const integrityHash = await computeSHA256(imageSrc);
-      const duplicateHash = await generateDuplicateHash(
-        formData.vendor_name,
-        formData.transaction_date,
-        formData.total_amount,
-      );
-
-      if (!skipDuplicateCheck) {
-        const duplicate = await findDuplicateCandidate(
-          { ...formData, duplicate_hash: duplicateHash },
-          integrityHash,
-        );
-
-        if (duplicate) {
-          setDuplicateCandidate(duplicate);
-          setPendingSave(true);
-          setSaving(false);
-          return;
-        }
-      }
-
-      const blob = dataUrlToBlob(imageSrc);
-      const extension = mimeType.includes('png') ? 'png' : 'jpg';
-      const baseName = normalizeFileName(originalFileName || `${formData.vendor_name || 'receipt'}-${Date.now()}`);
-      const storagePath = `${user.id}/${Date.now()}-${baseName}.${extension}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(storagePath, blob, {
-          cacheControl: '3600',
-          contentType: blob.type || 'image/jpeg',
-          upsert: false,
-        });
-
-      if (uploadError) throw new Error(uploadError.message);
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
-
-      const payload = toDbPayload(
-        { ...formData, duplicate_hash: duplicateHash, duplicate_warning: false },
-        publicUrl,
-        integrityHash,
-      );
-
-      const { error: insertError } = await supabase.from('receipts').insert(payload);
-
-      if (insertError) throw new Error(insertError.message);
-
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id ?? 'system',
-        action: 'receiptcreated',
-        details: `Receipt saved: ${payload.vendor_name} ${payload.transaction_date} ${payload.total_amount.toFixed(2)} SHA256 ${integrityHash.slice(0, 16)}...`,
-      });
-
-      setDuplicateCandidate(null);
-      setPendingSave(false);
-      resetScanner();
-      onSaveSuccess();
-
-      showNotice('success', 'Receipt saved successfully.');
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to save receipt.';
-      showNotice('error', errorMsg);
-    } finally {
-      setSaving(false);
-    }
+    const payload = finalFormData || formData;
+    saveMutation.mutate({ bypassCheck, localFormData: payload });
   }
 
   async function onSave() {
@@ -471,10 +395,82 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   }
 
   async function onContinueDuplicateSave() {
-    setDuplicateCandidate(null);
-    if (!pendingSave) return;
-    setPendingSave(false);
     await performSave(true);
+  }
+
+  async function processNextBatchItem() {
+    setBatchQueue(prev => {
+      if (prev.length === 0) {
+        setIsBatchProcessing(false);
+        setBatchTotal(0);
+        setBatchProgress(0);
+        showNotice('success', 'Batch processing completed.');
+        onSaveSuccess();
+        return [];
+      }
+      
+      const nextFile = prev[0];
+      const remaining = prev.slice(1);
+      
+      setBatchProgress(batchTotal - remaining.length);
+      
+      onCapture(nextFile).then(() => {
+        setTimeout(() => {
+          onProcessAI();
+        }, 1500);
+      });
+      
+      return remaining;
+    });
+  }
+
+  async function handleFilesSelected(filesList: FileList | null) {
+    if (!filesList || filesList.length === 0) return;
+    
+    let processedFiles: File[] = [];
+
+    for (let i = 0; i < filesList.length; i++) {
+      const file = filesList[i];
+      
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        try {
+          const zip = new JSZip();
+          const contents = await zip.loadAsync(file);
+          
+          for (const [relativePath, zipEntry] of Object.entries(contents.files)) {
+            if (!zipEntry.dir && relativePath.match(/\.(jpe?g|png)$/i)) {
+              const blob = await zipEntry.async('blob');
+              processedFiles.push(new File([blob], zipEntry.name, { type: blob.type || 'image/jpeg' }));
+            }
+          }
+        } catch (error) {
+          showNotice('error', `Failed to parse ZIP file: ${file.name}`);
+        }
+      } else if (file.type.startsWith('image/')) {
+        processedFiles.push(file);
+      }
+    }
+
+    if (processedFiles.length === 0) {
+      showNotice('error', 'No valid image files found to process.');
+      return;
+    }
+
+    if (processedFiles.length === 1) {
+      await onCapture(processedFiles[0]);
+    } else {
+      setBatchTotal(processedFiles.length);
+      setBatchProgress(1);
+      setIsBatchProcessing(true);
+      setBatchQueue(processedFiles);
+      
+      const firstFile = processedFiles[0];
+      setBatchQueue(processedFiles.slice(1));
+      
+      onCapture(firstFile).then(() => {
+        setTimeout(onProcessAI, 1500);
+      });
+    }
   }
 
   return (
@@ -486,21 +482,20 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         capture="environment"
         className="hidden"
         onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          await onCapture(file);
+          await handleFilesSelected(event.target.files);
+          if (cameraInputRef.current) cameraInputRef.current.value = '';
         }}
       />
       
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/*,application/pdf"
+        multiple
+        accept="image/*,.zip"
         className="hidden"
         onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          await onCapture(file);
+          await handleFilesSelected(event.target.files);
+          if (galleryInputRef.current) galleryInputRef.current.value = '';
         }}
       />
 
@@ -542,7 +537,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                 </p>
 
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                  {/* Haptic Scan Button with Spring physics */}
                   <motion.button
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
@@ -568,6 +562,24 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
             </div>
           ) : (
             <>
+              {isBatchProcessing && (
+                <div className="mb-4 overflow-hidden rounded-2xl border border-[#dfcaaa]/30 bg-obsidian shadow-[0_0_20px_rgba(190,169,142,0.1)]">
+                  <div className="relative px-5 py-3">
+                    <div className="flex items-center gap-3 relative z-10">
+                      <Layers className="h-5 w-5 animate-pulse text-champagne" />
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-champagne">Batch Extraction Engine Active</p>
+                        <p className="text-xs text-champagne/80">
+                          Analyzing Receipt {batchProgress} of {batchTotal}...
+                        </p>
+                      </div>
+                      <Loader2 className="h-4 w-4 animate-spin text-champagne" />
+                    </div>
+                    <div className="absolute top-0 left-0 h-full bg-champagne/10 transition-all duration-700 ease-in-out" style={{ width: `${(Math.max(1, batchProgress) / batchTotal) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
                 <div className="space-y-4 min-w-0">
                   <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface-raised">
@@ -619,11 +631,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                       {processingAI ? 'Processing with AI…' : 'Process with AI'}
                     </motion.button>
                   </div>
-
-                  <div className="rounded-2xl border border-champagne/15 bg-champagne/[0.04] px-4 py-3 text-xs text-champagne-dim">
-                    A SHA-256 integrity hash is generated before upload, and duplicate checking is performed using both
-                    the file hash and a vendor/date/amount fingerprint.
-                  </div>
                 </div>
 
                 <div className="min-w-0">
@@ -632,7 +639,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                     setFormData={setFormData}
                     businessUnits={businessUnits}
                     saving={saving || processingAI || loadingBusinessUnits}
-                    onSave={onSave}
+                    onSave={() => performSave(false, formData)}
                     hasAnalyzed={hasAnalyzed}
                   />
                 </div>

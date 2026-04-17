@@ -15,19 +15,8 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { motion } from 'framer-motion';
+import { AreaChart, BarList, Card, Metric, Text } from '@tremor/react';
 
 import type { ReceiptRow, UserRole } from '@/lib/types';
 import {
@@ -74,24 +63,6 @@ function formatShortCurrency(value: number): string {
   return `$${Math.round(value)}`;
 }
 
-function CustomTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ value: number; name?: string; color?: string }>;
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-
-  return (
-    <div className="rounded-2xl border border-glass-border bg-surface px-4 py-3 shadow-xl">
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</p>
-      <p className="text-sm font-bold tabular-nums text-champagne">{currencyFormatter.format(toNumber(payload[0].value))}</p>
-    </div>
-  );
-}
 
 function StatCard({
   label,
@@ -105,17 +76,17 @@ function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm transition-all duration-200 hover:border-glass-border-hover hover:bg-surface-raised sm:p-5">
+    <Card className="rounded-3xl border border-glass-border bg-surface shadow-sm transition-all duration-200 hover:border-glass-border-hover hover:bg-surface-raised !ring-0">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
           {icon}
         </div>
       </div>
 
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</p>
-      <p className="mt-2 text-2xl font-bold tracking-tight tabular-nums text-text-primary sm:text-3xl">{value}</p>
-      <p className="mt-1 text-sm text-text-secondary">{helper}</p>
-    </div>
+      <Text className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</Text>
+      <Metric className="mt-2 text-2xl font-bold tracking-tight tabular-nums text-text-primary sm:text-3xl">{value}</Metric>
+      <Text className="mt-1 text-sm text-text-secondary">{helper}</Text>
+    </Card>
   );
 }
 
@@ -420,35 +391,13 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
               </div>
             </div>
           ) : (
-            <div className="h-[280px] w-full sm:h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={spendingByCategory} margin={{ top: 8, right: 8, left: -24, bottom: 8 }}>
-                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
-                  <XAxis
-                    dataKey="name"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: '#6b6560' }}
-                    interval={0}
-                    angle={spendingByCategory.length > 4 ? -20 : 0}
-                    textAnchor={spendingByCategory.length > 4 ? 'end' : 'middle'}
-                    height={spendingByCategory.length > 4 ? 52 : 30}
-                    tickFormatter={(value: string) => (value.length > 14 ? `${value.slice(0, 14)}…` : value)}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: '#6b6560' }}
-                    tickFormatter={(value: number) => formatShortCurrency(value)}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="amount" radius={[10, 10, 0, 0]}>
-                    {spendingByCategory.map((entry, index) => (
-                      <Cell key={`${entry.name}-${index}`} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="mt-4 h-[280px] w-full overflow-y-auto sm:h-[320px]">
+              <BarList
+                data={spendingByCategory.map(s => ({ name: s.name, value: s.amount }))}
+                className="mt-2"
+                valueFormatter={(number) => currencyFormatter.format(number)}
+                showAnimation={true}
+              />
             </div>
           )}
         </div>
@@ -472,38 +421,17 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
               </div>
             </div>
           ) : (
-            <div className="h-[280px] w-full sm:h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyTrend} margin={{ top: 8, right: 8, left: -24, bottom: 8 }}>
-                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
-                  <XAxis
-                    dataKey="month"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: '#6b6560' }}
-                    tickFormatter={formatMonthLabel}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: '#6b6560' }}
-                    tickFormatter={(value: number) => formatShortCurrency(value)}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }) => (
-                      <CustomTooltip active={active} payload={payload as unknown as Array<{ value: number; name?: string; color?: string }>} label={formatMonthLabel(String(label ?? ''))} />
-                    )}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="amount"
-                    stroke="#bea98e"
-                    strokeWidth={3}
-                    dot={{ r: 4, fill: '#bea98e', stroke: '#0c0c0c', strokeWidth: 2 }}
-                    activeDot={{ r: 6, fill: '#bea98e', stroke: '#0c0c0c', strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="mt-4 h-[280px] w-full sm:h-[320px] dark">
+              <AreaChart
+                className="mt-4 h-72"
+                data={monthlyTrend.map(t => ({ month: formatMonthLabel(t.month), amount: t.amount }))}
+                index="month"
+                categories={['amount']}
+                colors={['amber']}
+                valueFormatter={(number) => currencyFormatter.format(number)}
+                showAnimation={true}
+                showLegend={false}
+              />
             </div>
           )}
         </div>

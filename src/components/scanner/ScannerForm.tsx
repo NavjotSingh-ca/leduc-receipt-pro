@@ -1,19 +1,21 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2 } from 'lucide-react';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
-import {
-  CATEGORIES,
-  PAYMENT_METHODS,
-  USAGE_TYPES,
-  createBlankReceiptLineItem,
-} from './types';
+import { CATEGORIES, PAYMENT_METHODS, USAGE_TYPES } from './types';
 import { shouldGlow, computeLiveCRAScore } from '@/lib/ui-utils';
+import { receiptFormSchema, ReceiptFormValues } from '@/lib/validations';
+import { isMathMismatch } from '@/lib/finance-utils';
 
 const inputCls =
   'w-full rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15';
+
+const errorInputCls =
+  'w-full rounded-xl border border-red-500/40 bg-red-500/[0.06] px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-red-500/60 focus:ring-2 focus:ring-red-500/15';
 
 const warningInputCls =
   'w-full rounded-xl border border-amber-500/40 bg-amber-500/[0.06] px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/15';
@@ -47,7 +49,7 @@ function craScoreColor(score: number): string {
 }
 
 export default function ScannerForm({
-  formData,
+  formData: rawFormData,
   setFormData,
   businessUnits,
   saving,
@@ -55,86 +57,71 @@ export default function ScannerForm({
   hasAnalyzed,
 }: ScannerFormProps & { hasAnalyzed?: boolean }) {
   const [isConfirmed, setIsConfirmed] = useState(false);
-  const lineItems = Array.isArray(formData.line_items) ? formData.line_items : [];
 
-  const [lastCheckGroup, setLastCheckGroup] = useState<string>('');
+  // Initialize RHF
+  const { register, control, handleSubmit, watch, setValue, formState: { errors } } = useForm<ReceiptFormValues>({
+    resolver: zodResolver(receiptFormSchema),
+    defaultValues: rawFormData,
+  });
+  
+  const { fields: lineItems, append, remove } = useFieldArray({
+    control,
+    name: "line_items"
+  });
 
-  const currentCheckGroup = `${formData.vendor_name}:${formData.transaction_date}`;
-  if (currentCheckGroup !== lastCheckGroup) {
-    setLastCheckGroup(currentCheckGroup);
-    setIsConfirmed(false);
-  }
+  // Watch entire form for live metrics
+  const formData = watch();
 
-  const missingBN = !String(formData.business_number ?? '').trim() || Boolean(formData.missing_bn_warning);
-  const mathMismatch = Boolean(formData.math_mismatch_warning);
+  // Sync upstream incoming formData shifts (e.g. from Scanner AI hook)
+  useEffect(() => {
+    if (rawFormData.transaction_date && rawFormData.transaction_date !== formData.transaction_date) {
+      setValue('transaction_date', rawFormData.transaction_date);
+    }
+  }, [rawFormData, setValue]);
+
+  const missingBN = Boolean(errors.business_number) || !String(formData.business_number ?? '').trim();
+  
+  // Custom Math Mismatch Check avoiding blocker
+  const mathMismatch = isMathMismatch(
+    safeNumber(formData.subtotal),
+    safeNumber(formData.tax_amount),
+    safeNumber(formData.pst_amount),
+    safeNumber(formData.total_amount)
+  );
+
   const thermalWarning = Boolean(formData.thermal_warning);
+  const fraudSuspicion = Boolean(formData.fraud_suspicion);
+  const fraudReason = formData.fraud_reason || 'AI detected a potential anomaly or policy violation in this receipt.';
 
   /* ─── Real-Time CRA Score ─── */
   const liveCRAScore = useMemo(() => computeLiveCRAScore({
-    vendor_name: formData.vendor_name,
-    vendor_address: formData.vendor_address,
-    business_number: formData.business_number,
-    transaction_date: formData.transaction_date,
+    ...formData,
     total_amount: safeNumber(formData.total_amount),
     subtotal: safeNumber(formData.subtotal),
     tax_amount: safeNumber(formData.tax_amount),
     pst_amount: safeNumber(formData.pst_amount),
-    payment_method: formData.payment_method,
-    notes: formData.notes,
-    line_items: lineItems,
-  }), [
-    formData.vendor_name, formData.vendor_address, formData.business_number,
-    formData.transaction_date, formData.total_amount, formData.subtotal,
-    formData.tax_amount, formData.pst_amount, formData.payment_method,
-    formData.notes, lineItems,
-  ]);
+    line_items: lineItems as ReceiptLineItem[],
+  }), [formData, lineItems]);
 
   const lowReadiness = liveCRAScore < 70;
   const glowActive = shouldGlow(safeNumber(formData.confidence_score));
   const isNonCAD = formData.currency && formData.currency !== 'CAD';
 
-  function patch<K extends keyof ReceiptForm>(key: K, value: ReceiptForm[K]) {
-    setFormData({
-      ...formData,
-      [key]: value,
-    });
-  }
+  /* ─── Explainable Policy Engine Flags ─── */
+  const isHighValue = safeNumber(formData.total_amount) > 500;
+  const needsVehicleId = formData.category?.toLowerCase().includes('fuel') && !formData.vehicle_id?.trim();
+  const isOutOfProvince = Boolean(formData.vendor_address) && !/Alberta|AB\b/i.test(formData.vendor_address);
 
-  function patchNumber<K extends keyof ReceiptForm>(key: K, raw: string) {
-    const value = raw === '' ? 0 : Number(raw);
-    patch(key, (Number.isFinite(value) ? value : 0) as ReceiptForm[K]);
-  }
-
-  function addLineItem() {
-    setFormData({
-      ...formData,
-      line_items: [...lineItems, createBlankReceiptLineItem()],
-    });
-  }
-
-  function removeLineItem(index: number) {
-    setFormData({
-      ...formData,
-      line_items: lineItems.filter((_, i) => i !== index),
-    });
-  }
-
-  function updateLineItem(index: number, partial: Partial<ReceiptLineItem>) {
-    const next = [...lineItems];
-    const current = next[index] ?? createBlankReceiptLineItem();
-    next[index] = updateComputedLineTotal({
-      ...current,
-      ...partial,
-    });
-
-    setFormData({
-      ...formData,
-      line_items: next,
-    });
-  }
+  const performSave = (data: ReceiptFormValues) => {
+    // Math mismatch injects high_audit_risk flag without blocking Zod submission
+    const finalData = { ...data, high_audit_risk: mathMismatch };
+    // Call parent onSave, passing the RHF verified payload
+    setFormData(finalData as unknown as ReceiptForm);
+    onSave();
+  };
 
   return (
-    <div className="space-y-5 fade-in">
+    <form onSubmit={handleSubmit(performSave)} className="space-y-5 fade-in">
       {/* Header */}
       <div className="rounded-3xl border border-glass-border bg-surface px-5 py-4 shadow-sm">
         <h3 className="text-base font-bold text-text-primary">Review extracted data</h3>
@@ -143,9 +130,58 @@ export default function ScannerForm({
         </p>
       </div>
 
-      {/* Warnings */}
-      {(missingBN || mathMismatch || thermalWarning || lowReadiness) && (
+      {/* Warnings & Live Policy Guardrails */}
+      {(missingBN || mathMismatch || thermalWarning || lowReadiness || fraudSuspicion || isHighValue || needsVehicleId || isOutOfProvince) && (
         <div className="space-y-3">
+          {/* Policy Flags */}
+          {isHighValue && (
+            <div className="rounded-2xl border border-[#dfcaaa]/40 bg-[#dfcaaa]/10 px-4 py-3 shadow-[0_0_15px_rgba(190,169,142,0.15)]">
+              <div className="flex items-start gap-3">
+                <DollarSign className="mt-0.5 h-4 w-4 flex-shrink-0 text-champagne" />
+                <div>
+                  <p className="text-sm font-bold text-champagne">Audit Flag: High-Value Expense requires Owner Approval</p>
+                  <p className="mt-1 text-xs leading-relaxed text-champagne/80">Expenses over $500 will enter the Owner Queue before reimbursement.</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {needsVehicleId && (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
+                <div>
+                  <p className="text-sm font-bold text-amber-300">CRA Tip: Vehicle ID is mandatory for fuel ITC.</p>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-400/80">Input the physical truck or asset ID to claim input tax credits safely.</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {isOutOfProvince && (
+            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] px-4 py-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-400" />
+                <div>
+                  <p className="text-sm font-bold text-blue-300">Out-of-Province Expense Detected</p>
+                  <p className="mt-1 text-xs leading-relaxed text-blue-400/80">Ensure proper PST/HST rates are applied for non-Alberta transactions.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Core AI Flags */}
+          {fraudSuspicion && (
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 shadow-lg shadow-red-500/5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+                <div>
+                  <p className="text-sm font-bold text-red-400">AI Anomaly Detected</p>
+                  <p className="mt-1 text-xs leading-relaxed text-red-300">
+                    {fraudReason}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {missingBN && (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3">
               <div className="flex items-start gap-3">
@@ -164,9 +200,9 @@ export default function ScannerForm({
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
                 <div>
-                  <p className="text-sm font-bold text-amber-300">Amount mismatch</p>
+                  <p className="text-sm font-bold text-amber-300">Caution: Totals do not match. Proceed with override?</p>
                   <p className="mt-1 text-xs leading-relaxed text-amber-400/80">
-                    The subtotal plus taxes does not match the total within expected tolerance.
+                    The subtotal plus taxes does not match the total within expected tolerance. A high audit risk flag will be attached.
                   </p>
                 </div>
               </div>
@@ -210,37 +246,39 @@ export default function ScannerForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Vendor Name</label>
-              <input type="text" value={formData.vendor_name} onChange={(e) => patch('vendor_name', e.target.value)} className={`${glowActive ? inputCls + ' self-healing-glow' : inputCls}`} placeholder="Supplier name" />
+              <input type="text" {...register('vendor_name')} className={`${errors.vendor_name ? errorInputCls : (glowActive ? inputCls + ' self-healing-glow' : inputCls)}`} placeholder="Supplier name" />
+              {errors.vendor_name && <p className="mt-1 text-xs text-red-500">{errors.vendor_name.message}</p>}
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Vendor Address</label>
-              <input type="text" value={formData.vendor_address} onChange={(e) => patch('vendor_address', e.target.value)} className={inputCls} placeholder="123 Main St, Calgary, AB" />
+              <input type="text" {...register('vendor_address')} className={inputCls} placeholder="123 Main St, Calgary, AB" />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Date</label>
-              <input type="date" value={formData.transaction_date} onChange={(e) => patch('transaction_date', e.target.value)} className={inputCls} />
+              <input type="date" {...register('transaction_date')} className={errors.transaction_date ? errorInputCls : inputCls} />
+              {errors.transaction_date && <p className="mt-1 text-xs text-red-500">{errors.transaction_date.message}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Time</label>
-              <input type="time" value={formData.transaction_time} onChange={(e) => patch('transaction_time', e.target.value)} className={inputCls} />
+              <input type="time" {...register('transaction_time')} className={inputCls} />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Payment Method</label>
-              <select value={formData.payment_method} onChange={(e) => patch('payment_method', e.target.value)} className={inputCls}>
+              <select {...register('payment_method')} className={inputCls}>
                 {PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
               </select>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Card end digits</label>
-              <input type="text" maxLength={4} value={formData.card_last_four} onChange={(e) => patch('card_last_four', e.target.value.replace(/\D/g, '').slice(0, 4))} className={inputCls} placeholder="1234" />
+              <input type="text" maxLength={4} {...register('card_last_four')} className={errors.card_last_four ? errorInputCls : inputCls} placeholder="1234" />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Payment Ref</label>
-              <input type="text" value={formData.payment_reference} onChange={(e) => patch('payment_reference', e.target.value)} className={inputCls} placeholder="Approval Code" />
+              <input type="text" {...register('payment_reference')} className={inputCls} placeholder="Approval Code" />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Currency</label>
-              <input type="text" value={formData.currency} onChange={(e) => patch('currency', e.target.value.toUpperCase())} className={inputCls} placeholder="CAD" />
+              <input type="text" {...register('currency')} className={errors.currency ? errorInputCls : inputCls} placeholder="CAD" />
             </div>
           </div>
         </div>
@@ -257,9 +295,8 @@ export default function ScannerForm({
             <button
               type="button"
               onClick={() => {
-                patch('paid_by', 'company_card');
-                patch('reimbursement_status', '' as ReceiptForm['reimbursement_status']);
-                patch('needs_reimbursement', false);
+                setValue('paid_by', 'company_card');
+                setValue('reimbursement_status', null);
               }}
               className={`rounded-2xl border p-4 text-left transition ${
                 formData.paid_by === 'company_card'
@@ -279,9 +316,8 @@ export default function ScannerForm({
             <button
               type="button"
               onClick={() => {
-                patch('paid_by', 'employee_cash');
-                patch('reimbursement_status', 'pending' as ReceiptForm['reimbursement_status']);
-                patch('needs_reimbursement', true);
+                setValue('paid_by', 'employee_cash');
+                setValue('reimbursement_status', 'pending');
               }}
               className={`rounded-2xl border p-4 text-left transition ${
                 formData.paid_by === 'employee_cash'
@@ -320,19 +356,23 @@ export default function ScannerForm({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Subtotal</label>
-              <input type="number" step="0.01" min="0" value={formData.subtotal} onChange={(e) => patchNumber('subtotal', e.target.value)} className={inputCls} />
+              <input type="number" step="0.01" min="0" {...register('subtotal', { valueAsNumber: true })} className={errors.subtotal ? errorInputCls : inputCls} />
+              {errors.subtotal && <p className="mt-1 text-xs text-red-500">{errors.subtotal.message}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Total</label>
-              <input type="number" step="0.01" min="0" value={formData.total_amount} onChange={(e) => patchNumber('total_amount', e.target.value)} className={glowActive ? inputCls + ' self-healing-glow' : inputCls} />
+              <input type="number" step="0.01" min="0" {...register('total_amount', { valueAsNumber: true })} className={errors.total_amount ? errorInputCls : (glowActive ? inputCls + ' self-healing-glow' : inputCls)} />
+              {errors.total_amount && <p className="mt-1 text-xs text-red-500">{errors.total_amount.message}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">GST Amount</label>
-              <input type="number" step="0.01" min="0" value={formData.tax_amount} onChange={(e) => patchNumber('tax_amount', e.target.value)} className={missingBN ? warningInputCls : inputCls} />
+              <input type="number" step="0.01" min="0" {...register('tax_amount', { valueAsNumber: true })} className={errors.tax_amount ? errorInputCls : inputCls} />
+              {errors.tax_amount && <p className="mt-1 text-xs text-red-500">{errors.tax_amount.message}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">PST / HST</label>
-              <input type="number" step="0.01" min="0" value={formData.pst_amount} onChange={(e) => patchNumber('pst_amount', e.target.value)} className={inputCls} />
+              <input type="number" step="0.01" min="0" {...register('pst_amount', { valueAsNumber: true })} className={errors.pst_amount ? errorInputCls : inputCls} />
+              {errors.pst_amount && <p className="mt-1 text-xs text-red-500">{errors.pst_amount.message}</p>}
             </div>
           </div>
 
@@ -358,38 +398,40 @@ export default function ScannerForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">GST / Vendor Tax Number</label>
-              <input type="text" value={formData.business_number} onChange={(e) => patch('business_number', e.target.value.toUpperCase())} className={glowActive ? (missingBN ? warningInputCls + ' self-healing-glow' : inputCls + ' self-healing-glow') : (missingBN ? warningInputCls : inputCls)} placeholder="123456789RT0001" />
+              <input type="text" {...register('business_number')} className={errors.business_number ? errorInputCls : (missingBN ? warningInputCls : inputCls)} placeholder="123456789RT0001" />
+              {errors.business_number && <p className="mt-1 text-xs text-red-500">{errors.business_number.message}</p>}
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Category</label>
-              <select value={formData.category} onChange={(e) => patch('category', e.target.value)} className={inputCls}>
+              <select {...register('category')} className={inputCls}>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Usage Type</label>
-              <select value={formData.usage_type} onChange={(e) => patch('usage_type', e.target.value as ReceiptForm['usage_type'])} className={inputCls}>
+              <select {...register('usage_type')} className={inputCls}>
                 {USAGE_TYPES.map((u) => <option key={u} value={u}>{u.charAt(0).toUpperCase() + u.slice(1)}</option>)}
               </select>
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Job code</label>
-              <input type="text" value={formData.job_code} onChange={(e) => patch('job_code', e.target.value)} className={inputCls} placeholder="JOB-1042" />
+              <input type="text" {...register('job_code')} className={inputCls} placeholder="JOB-1042" />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Vehicle ID</label>
-              <input type="text" value={formData.vehicle_id} onChange={(e) => patch('vehicle_id', e.target.value)} className={inputCls} placeholder="Truck 12" />
+              <input type="text" {...register('vehicle_id')} className={errors.vehicle_id ? errorInputCls : inputCls} placeholder="Truck 12" />
+              {errors.vehicle_id && <p className="mt-1 text-xs text-red-500">{errors.vehicle_id.message}</p>}
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Business unit</label>
-              <select value={formData.business_unit_id} onChange={(e) => patch('business_unit_id', e.target.value)} className={inputCls}>
+              <select {...register('business_unit_id')} className={inputCls}>
                 <option value="">Unassigned</option>
                 {businessUnits.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Business purpose / memo</label>
-              <textarea rows={3} value={formData.notes} onChange={(e) => patch('notes', e.target.value)} className={`${inputCls} resize-none`} placeholder="Describe the business purpose..." />
+              <textarea rows={3} {...register('notes')} className={`${inputCls} resize-none`} placeholder="Describe the business purpose..." />
             </div>
           </div>
         </div>
@@ -399,7 +441,7 @@ export default function ScannerForm({
       <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface shadow-sm">
         <div className="flex items-center justify-between border-b border-glass-border px-5 py-3">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-text-muted">Line Items</p>
-          <button type="button" onClick={addLineItem} className="inline-flex items-center gap-1.5 rounded-lg bg-surface-raised px-2.5 py-1.5 text-xs font-semibold text-text-secondary transition hover:bg-glass-border-hover hover:text-text-primary">
+          <button type="button" onClick={() => append({ description: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_amount: 0, line_total: 0 })} className="inline-flex items-center gap-1.5 rounded-lg bg-surface-raised px-2.5 py-1.5 text-xs font-semibold text-text-secondary transition hover:bg-glass-border-hover hover:text-text-primary">
             <Plus className="h-3 w-3" /> Add Item
           </button>
         </div>
@@ -408,30 +450,24 @@ export default function ScannerForm({
             <div className="px-5 py-8 text-center text-sm text-text-muted">No line items available.</div>
           ) : (
             lineItems.map((item, index) => (
-              <div key={index} className="flex gap-4 px-5 py-4 transition hover:bg-surface-hover/50">
+              <div key={item.id} className="flex gap-4 px-5 py-4 transition hover:bg-surface-hover/50">
                 <div className="flex-1 space-y-2">
-                  {/* Primary Row: Description + Line Total */}
                   <div className="flex items-center gap-3">
-                    <input type="text" value={item.description} onChange={(e) => updateLineItem(index, { description: e.target.value })} className="w-full min-w-0 bg-transparent text-sm font-semibold text-text-primary placeholder:text-text-muted focus:outline-none" placeholder="Item description" />
-                    <div className="min-w-[70px] shrink-0 font-mono text-sm font-bold text-champagne text-right">${safeNumber(item.line_total).toFixed(2)}</div>
+                    <input type="text" {...register(`line_items.${index}.description` as const)} className="w-full min-w-0 bg-transparent text-sm font-semibold text-text-primary placeholder:text-text-muted focus:outline-none" placeholder="Item description" />
+                    <div className="min-w-[70px] shrink-0 font-mono text-sm font-bold text-champagne text-right">${safeNumber(formData.line_items?.[index]?.line_total).toFixed(2)}</div>
                   </div>
-                  {/* Secondary Row: Qty, Unit, Tax (small gray text) */}
                   <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-text-muted">
                     <div className="flex items-center gap-1.5">
                       <span>Qty:</span>
-                      <input type="number" min="0" step="1" value={item.quantity} onChange={(e) => updateLineItem(index, { quantity: safeNumber(e.target.value) })} className="w-12 rounded border border-transparent bg-surface-raised px-1 py-0.5 text-text-secondary focus:border-glass-border focus:outline-none" />
+                      <input type="number" min="0" step="1" {...register(`line_items.${index}.quantity` as const, { valueAsNumber: true })} className="w-12 rounded border border-transparent bg-surface-raised px-1 py-0.5 text-text-secondary focus:border-glass-border focus:outline-none" />
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span>Unit:</span>
-                      <input type="number" min="0" step="0.01" value={item.unit_price} onChange={(e) => updateLineItem(index, { unit_price: safeNumber(e.target.value) })} className="w-16 rounded border border-transparent bg-surface-raised px-1 py-0.5 text-text-secondary focus:border-glass-border focus:outline-none" />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span>Tax:</span>
-                      <input type="number" min="0" step="0.01" value={item.tax_amount} onChange={(e) => updateLineItem(index, { tax_amount: safeNumber(e.target.value) })} className="w-16 rounded border border-transparent bg-surface-raised px-1 py-0.5 text-text-secondary focus:border-glass-border focus:outline-none" />
+                      <input type="number" min="0" step="0.01" {...register(`line_items.${index}.unit_price` as const, { valueAsNumber: true })} className="w-16 rounded border border-transparent bg-surface-raised px-1 py-0.5 text-text-secondary focus:border-glass-border focus:outline-none" />
                     </div>
                   </div>
                 </div>
-                <button type="button" onClick={() => removeLineItem(index)} className="shrink-0 self-start text-text-muted transition hover:text-red-400 p-1">
+                <button type="button" onClick={() => remove(index)} className="shrink-0 self-start text-text-muted transition hover:text-red-400 p-1">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
@@ -487,11 +523,11 @@ export default function ScannerForm({
         </button>
 
         {hasAnalyzed && (
-          <button type="button" onClick={onSave} disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="submit" disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
             {saving ? 'Saving secure record…' : 'Save verified receipt'}
           </button>
         )}
       </div>
-    </div>
+    </form>
   );
 }

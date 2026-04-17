@@ -20,8 +20,11 @@ import {
   Tag,
   X,
   XCircle,
+  BrainCircuit,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+import { semanticSearchAction } from '@/app/actions/semantic-search';
 
 import type { ReceiptRow } from '@/lib/types';
 import type { UserRole } from '@/lib/types';
@@ -68,6 +71,9 @@ export default function History({
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRow | null>(null);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [semanticMode, setSemanticMode] = useState(false);
+  const [semanticResults, setSemanticResults] = useState<string[] | null>(null);
+  const [semanticLoading, setSemanticLoading] = useState(false);
 
   const filteredReceipts = useMemo(() => {
     let items = [...receipts];
@@ -104,7 +110,9 @@ export default function History({
       }
     }
 
-    if (search.trim()) {
+    if (semanticMode && semanticResults) {
+      items = items.filter((r) => semanticResults.includes(r.id));
+    } else if (!semanticMode && search.trim()) {
       const q = search.trim().toLowerCase();
       items = items.filter((r) => {
         const fields = [
@@ -125,7 +133,21 @@ export default function History({
     }
 
     return items;
-  }, [receipts, activeFilter, search]);
+  }, [receipts, activeFilter, search, semanticMode, semanticResults]);
+
+  const handleSemanticSearch = async () => {
+    if (!search.trim()) return;
+    setSemanticLoading(true);
+    try {
+      const results = await semanticSearchAction(search.trim());
+      setSemanticResults(results.map((r) => r.id));
+    } catch (err) {
+      console.error(err);
+      setSemanticResults([]);
+    } finally {
+      setSemanticLoading(false);
+    }
+  };
 
   const handleRefresh = async () => {
     if (!onUpdate) return;
@@ -161,20 +183,38 @@ export default function History({
 
         {/* Global Search Bar */}
         <div className="rounded-2xl border border-glass-border bg-surface p-3 shadow-sm">
-          <div className="flex items-center gap-3 rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5">
-            <Search className="h-4 w-4 text-text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search vendor, date, BN, job code, notes..."
-              className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
-            />
-            {search && (
-              <button type="button" onClick={() => setSearch('')} className="text-text-muted hover:text-text-secondary">
-                <X className="h-4 w-4" />
+          <div className="flex items-center gap-3">
+            <div className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 transition ${semanticMode ? 'border-champagne/40 bg-champagne/5' : 'border-glass-border bg-surface-raised'}`}>
+              <button 
+                type="button" 
+                onClick={() => { setSemanticMode(!semanticMode); setSemanticResults(null); }}
+                className={`transition ${semanticMode ? 'text-champagne' : 'text-text-muted hover:text-text-secondary'}`}
+                title={semanticMode ? "Semantic Search Active" : "Enable Semantic AI Search"}
+              >
+                <BrainCircuit className="h-5 w-5" />
               </button>
-            )}
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  if (semanticMode) setSemanticResults(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && semanticMode) {
+                    handleSemanticSearch();
+                  }
+                }}
+                placeholder={semanticMode ? "Ask AI (e.g. 'Coffee with clients in Calgary'). Press Enter to search." : "Search vendor, date, BN, notes..."}
+                className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
+              />
+              {semanticLoading && <Loader2 className="h-4 w-4 animate-spin text-champagne" />}
+              {search && !semanticLoading && (
+                <button type="button" onClick={() => { setSearch(''); setSemanticResults(null); }} className="text-text-muted hover:text-text-secondary">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -209,6 +249,7 @@ export default function History({
                   variants={cardVariants}
                   initial="hidden"
                   animate="visible"
+                  layoutId={`receipt-card-${receipt.id}`}
                   type="button"
                   onClick={() => setSelectedReceipt(receipt)}
                   className={`w-full rounded-2xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-glass-border-hover hover:bg-surface-raised ${isOptimistic ? 'optimistic-pulse' : ''}`}
@@ -424,9 +465,10 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
       onClick={onClose}
     >
       <motion.div
-        initial={{ y: 40, opacity: 0, scale: 0.97 }}
+        layoutId={`receipt-card-${receipt.id}`}
+        initial={{ y: 0, opacity: 1, scale: 1 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
-        exit={{ y: 40, opacity: 0, scale: 0.97 }}
+        exit={{ opacity: 0, scale: 0.97 }}
         transition={{ type: 'spring', stiffness: 260, damping: 20 }}
         className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-glass-border bg-surface shadow-2xl sm:max-w-2xl sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}

@@ -14,16 +14,12 @@ import {
 
 import type { ReceiptRow } from '@/lib/types';
 import { toNumber } from '@/lib/ui-utils';
+import { formatDineroIntl } from '@/lib/finance-utils';
+import { format } from 'date-fns';
 
 interface ExportProps {
   receipts: ReceiptRow[];
 }
-
-const currencyFormatter = new Intl.NumberFormat('en-CA', {
-  style: 'currency',
-  currency: 'CAD',
-  maximumFractionDigits: 2,
-});
 
 function getVendor(r: ReceiptRow): string {
   return String(r.vendor_name ?? 'Unknown Vendor').trim() || 'Unknown Vendor';
@@ -62,7 +58,7 @@ function getHash(r: ReceiptRow): string {
 }
 
 function formatDateInput(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return format(date, 'yyyy-MM-dd');
 }
 
 function withinRange(r: ReceiptRow, from: string, to: string): boolean {
@@ -94,6 +90,7 @@ function buildCSV(receipts: ReceiptRow[]): string {
     'Card Last 4', 'Currency', 'Subtotal', 'GST', 'PST', 'Total',
     'Business Number', 'Business Use %', 'Job Code', 'Vehicle ID',
     'Notes', 'Paid By', 'Reimbursement Status', 'Approval Status',
+    'AI Fraud Suspicion', 'AI Fraud Reason',
     'Line Items', 'Integrity Hash', 'Image URL',
   ];
 
@@ -117,9 +114,33 @@ function buildCSV(receipts: ReceiptRow[]): string {
     String(r.paid_by ?? ''),
     String(r.reimbursement_status ?? ''),
     String(r.approval_status ?? ''),
+    (r as any).fraud_suspicion ? 'TRUE' : 'FALSE',
+    String((r as any).fraud_reason ?? ''),
     stringifyLineItems(r.line_items),
     getHash(r),
     getImageUrl(r),
+  ]);
+
+  return '\ufeff' + [headers.map(csvEscape).join(','), ...rows.map((row) => row.map(csvEscape).join(','))].join('\n');
+}
+
+function buildIDEACSV(receipts: ReceiptRow[]): string {
+  const headers = [
+    'Integrity Hash (SHA-256)', 'User ID', 'Transaction Date', 'Vendor Name', 
+    'Vendor Tax Number', 'Subtotal', 'Taxes', 'Total Amount', 'Job Code', 'Approval Status'
+  ];
+
+  const rows = receipts.map((r) => [
+    getHash(r),
+    String(r.user_id ?? 'Unknown'),
+    getDate(r),
+    getVendor(r),
+    getBN(r),
+    toNumber(r.subtotal).toFixed(2),
+    (getGST(r) + getPST(r)).toFixed(2),
+    getTotal(r).toFixed(2),
+    String(r.job_code ?? ''),
+    String(r.approval_status ?? ''),
   ]);
 
   return '\ufeff' + [headers.map(csvEscape).join(','), ...rows.map((row) => row.map(csvEscape).join(','))].join('\n');
@@ -183,6 +204,21 @@ export default function Export({ receipts }: ExportProps) {
     const a = document.createElement('a');
     a.href = url;
     a.download = `receipt-pro-export-${formatDateInput(new Date())}.csv`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadIDEAExport() {
+    if (filteredReceipts.length === 0) return;
+
+    const csv = buildIDEACSV(filteredReceipts);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-pro-idea-export-${formatDateInput(new Date())}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -289,7 +325,7 @@ export default function Export({ receipts }: ExportProps) {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-3">
         <button
           type="button"
           onClick={downloadCSV}
@@ -329,20 +365,40 @@ export default function Export({ receipts }: ExportProps) {
             <Download className="mt-1 h-4 w-4 flex-shrink-0 text-text-muted" />
           </div>
         </button>
+
+        <button
+          type="button"
+          onClick={downloadIDEAExport}
+          disabled={filteredReceipts.length === 0}
+          className="rounded-3xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-glass-border-hover hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
+              <FileArchive className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-text-primary">Generate CRA IDEA Export</p>
+              <p className="mt-1 text-sm leading-relaxed text-text-secondary">
+                Flat CSV mapped for the CRA IDEA audit software framework. 
+              </p>
+            </div>
+            <Download className="mt-1 h-4 w-4 flex-shrink-0 text-text-muted" />
+          </div>
+        </button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">Total</p>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{currencyFormatter.format(totals.total)}</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{formatDineroIntl(totals.total)}</p>
         </div>
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">GST</p>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-champagne">{currencyFormatter.format(totals.gst)}</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-champagne">{formatDineroIntl(totals.gst)}</p>
         </div>
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">PST</p>
-          <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{currencyFormatter.format(totals.pst)}</p>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-text-primary">{formatDineroIntl(totals.pst)}</p>
         </div>
         <div className="rounded-3xl border border-glass-border bg-surface p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">Pending Claims</p>

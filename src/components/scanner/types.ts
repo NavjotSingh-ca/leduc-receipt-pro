@@ -63,6 +63,9 @@ export interface ReceiptForm {
   missing_bn_warning: boolean;
   needs_reimbursement?: boolean;
 
+  fraud_suspicion: boolean;
+  fraud_reason: string;
+
   capture_source: CaptureSource;
   usage_type: UsageType;
   business_use_percent: number;
@@ -117,6 +120,9 @@ export interface ReceiptRow {
 
   confidence_score?: number | null;
   cra_readiness_score?: number | null;
+
+  fraud_suspicion?: boolean | null;
+  fraud_reason?: string | null;
 
   thermal_warning?: boolean | null;
   capture_source?: CaptureSource | string | null;
@@ -244,6 +250,9 @@ export function createBlankReceiptForm(): ReceiptForm {
     duplicate_hash: '',
     math_mismatch_warning: false,
     missing_bn_warning: false,
+
+    fraud_suspicion: false,
+    fraud_reason: '',
 
     capture_source: 'camera',
     usage_type: 'business',
