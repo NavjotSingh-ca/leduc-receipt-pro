@@ -364,14 +364,20 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       const resized = await resizeTo2000px(cropped, 'image/jpeg');
       setImageSrc(resized);
       setShowCropper(false);
-      showNotice('success', 'Crop applied. Ready for AI processing.');
+      showNotice('info', 'AI Extraction starting...');
+      
+      // Auto-trigger AI to fix the loop and advance state
+      setTimeout(() => {
+        onProcessAI(resized);
+      }, 50);
     } catch (error) {
       showNotice('error', error instanceof Error ? error.message : 'Failed to apply crop.');
     }
   }
 
-  async function onProcessAI() {
-    if (!imageSrc) {
+  async function onProcessAI(explicitSrc?: string) {
+    const srcToUse = explicitSrc || imageSrc;
+    if (!srcToUse) {
       showNotice('error', 'Please capture a receipt first.');
       return;
     }
@@ -380,7 +386,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setNotice(null);
 
     try {
-      const result = await scanReceipt(imageSrc);
+      const result = await scanReceipt(srcToUse);
 
       if (!result.success) {
         showNotice('error', result.error);
@@ -493,7 +499,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setBatchQueue(processedFiles.slice(1));
       
       onCapture(firstFile).then(() => {
-        setTimeout(onProcessAI, 1500);
+        setTimeout(() => onProcessAI(), 1500);
       });
     }
   }
@@ -646,7 +652,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <motion.button
                       type="button"
-                      onClick={onProcessAI}
+                      onClick={() => onProcessAI()}
                       disabled={!canProcess}
                       whileTap={{ scale: 0.95 }}
                       transition={{ type: 'spring', stiffness: 260, damping: 20 }}

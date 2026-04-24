@@ -88,6 +88,7 @@ export interface ReceiptRow {
   duplicate_warning?: boolean | null;
   math_mismatch_warning?: boolean | null;
   missing_bn_warning?: boolean | null;
+  high_audit_risk?: boolean | null;
 
   /* ─── Optimistic UI ─── */
   _optimistic?: boolean;

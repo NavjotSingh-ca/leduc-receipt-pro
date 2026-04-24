@@ -12,12 +12,17 @@ import {
   Layers,
   Loader2,
   LogOut,
+  Menu,
+  MoreHorizontal,
+  Settings,
+  Scale,
   ReceiptText,
   ShieldCheck,
   TrendingUp,
   UserCircle2,
   Fingerprint,
 } from 'lucide-react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import Dashboard from '@/components/Dashboard';
@@ -33,7 +38,7 @@ import { supabase } from '@/lib/supabase';
 import type { ReceiptRow, UserRole } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
 
-type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit' | 'reconcile';
+type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit' | 'reconcile' | 'more';
 
 type ToastState = {
   type: 'success' | 'error' | 'info';
@@ -116,9 +121,9 @@ const tabTransition = {
 };
 
 const tabVariants = {
-  initial: { opacity: 0, y: 16, scale: 0.97, filter: 'blur(4px)' },
-  animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -12, scale: 0.96, filter: 'blur(4px)' },
+  initial: { opacity: 0, x: 20, filter: 'blur(8px)' },
+  animate: { opacity: 1, x: 0, filter: 'blur(0px)' },
+  exit: { opacity: 0, x: -20, filter: 'blur(8px)' },
 };
 
 /* ─── Loader ─── */
@@ -507,6 +512,25 @@ export default function Page() {
     enabled: !!userId,
   });
 
+  // Parallel Prefetching to kill the 9-second waterfall
+  useQuery({
+    queryKey: ['business_units'],
+    queryFn: async () => {
+      const { data } = await supabase.from('businessunits').select('id, name');
+      return data || [];
+    },
+    enabled: !!userId,
+  });
+
+  useQuery({
+    queryKey: ['audit_logs'],
+    queryFn: async () => {
+      const { data } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
+      return data || [];
+    },
+    enabled: !!userId && role !== 'Employee',
+  });
+
   const handleFilterClick = useCallback((filter: string) => {
     setActiveFilter(filter);
     setActiveTab('receipts');
@@ -540,8 +564,7 @@ export default function Page() {
     { id: 'receipts', label: 'Records', icon: <ReceiptText className="h-5 w-5" /> },
     { id: 'scan', label: 'Scan', icon: <Camera className="h-6 w-6" />, primary: true },
     { id: 'reconcile', label: 'Bank', icon: <TrendingUp className="h-5 w-5" /> },
-    { id: 'export', label: 'Export', icon: <Download className="h-5 w-5" /> },
-    { id: 'audit', label: 'Audit', icon: <ShieldCheck className="h-5 w-5" /> },
+    { id: 'more', label: 'More', icon: <MoreHorizontal className="h-5 w-5" /> },
   ];
 
   return (
@@ -751,13 +774,56 @@ export default function Page() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* 'More' Bottom Sheet */}
+        <AnimatePresence>
+          {activeTab === 'more' && (
+            <motion.div
+              initial={{ opacity: 0, y: '100%' }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-x-0 bottom-0 z-[60] flex flex-col rounded-t-[2.5rem] border-t border-glass-border bg-black/60 p-6 pb-32 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] backdrop-blur-3xl sm:mx-auto sm:max-w-md sm:border-x sm:border-white/10"
+            >
+              <div className="mx-auto mb-6 h-1 w-12 rounded-full bg-white/20" />
+              <h3 className="mb-4 px-2 text-lg font-bold text-white">More Options</h3>
+              
+              <div className="grid gap-2">
+                {role !== 'Employee' && (
+                  <>
+                    <button onClick={() => setActiveTab('audit')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><ShieldCheck className="h-5 w-5" /></div>
+                      <div className="text-left"><p className="text-sm font-bold text-white">Audit Trail</p><p className="text-xs text-white/50">Immutable Merkle history</p></div>
+                    </button>
+                    <button onClick={() => setActiveTab('export')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><Download className="h-5 w-5" /></div>
+                      <div className="text-left"><p className="text-sm font-bold text-white">CRA Export</p><p className="text-xs text-white/50">Generate compliance ZIPs</p></div>
+                    </button>
+                  </>
+                )}
+                
+                <div className="mt-4 px-2">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-widest text-white/40">Legal & Settings</p>
+                  <Link href="/terms" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-white/5">
+                    <Scale className="h-4 w-4 text-white/50" />
+                    <span className="text-sm font-semibold text-white/80">Terms of Service</span>
+                  </Link>
+                  <Link href="/privacy" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-white/5">
+                    <ShieldCheck className="h-4 w-4 text-white/50" />
+                    <span className="text-sm font-semibold text-white/80">Privacy Policy</span>
+                  </Link>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Bottom Navigation */}
       <nav className="fixed inset-x-0 bottom-0 z-50 liquid-glass">
         <div className="mx-auto flex max-w-6xl items-end justify-around px-2 py-2 sm:px-4">
           {navItems.map((item) => {
-            /* Employee: hide dashboard, export, audit, reconcile */
+            /* Employee: hide certain tabs, but 'more' can still hold settings/legal */
             if (role === 'Employee' && ['dashboard', 'export', 'audit', 'reconcile'].includes(item.id)) {
               return null;
             }

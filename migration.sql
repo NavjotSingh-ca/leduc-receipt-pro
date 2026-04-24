@@ -70,18 +70,28 @@ ALTER TABLE receipt_line_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipt_history ENABLE ROW LEVEL SECURITY;
 
+-- Helper Function for RLS (Security Definer avoids recursion)
+CREATE OR REPLACE FUNCTION has_elevated_role()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_id = auth.uid() AND role IN ('Owner', 'Accountant')
+  );
+END;
+$$;
+
 -- Receipts RLS
 DROP POLICY IF EXISTS "Role_Based_Select_Receipts" ON receipts;
 DROP POLICY IF EXISTS "Users can view own receipts" ON receipts;
 CREATE POLICY "Role_Based_Select_Receipts"
   ON receipts FOR SELECT
   USING (
-    auth.uid() = user_id
-    OR EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_roles.user_id = auth.uid()
-      AND user_roles.role IN ('Owner', 'Accountant')
-    )
+    auth.uid() = user_id OR has_elevated_role()
   );
 
 DROP POLICY IF EXISTS "Insert_Own_Receipts" ON receipts;
@@ -94,18 +104,17 @@ DROP POLICY IF EXISTS "Update_Own_Receipts" ON receipts;
 DROP POLICY IF EXISTS "Users can update own receipts" ON receipts;
 CREATE POLICY "Update_Own_Receipts"
   ON receipts FOR UPDATE
-  USING (auth.uid() = user_id OR EXISTS (SELECT 1 FROM user_roles WHERE user_roles.user_id = auth.uid() AND user_roles.role IN ('Owner', 'Accountant')));
+  USING (auth.uid() = user_id OR has_elevated_role());
 
 -- Users Roles RLS
 DROP POLICY IF EXISTS "View_Own_Role" ON user_roles;
-CREATE POLICY "View_Own_Role" ON user_roles FOR SELECT USING (auth.uid() = user_id OR EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id = auth.uid() AND ur.role = 'Owner'));
+CREATE POLICY "View_Own_Role" ON user_roles FOR SELECT USING (auth.uid() = user_id OR has_elevated_role());
 
 -- Audit Logs RLS
 DROP POLICY IF EXISTS "Role_Based_View_Audit" ON audit_logs;
 DROP POLICY IF EXISTS "Users can view own audit logs" ON audit_logs;
 CREATE POLICY "Role_Based_View_Audit" ON audit_logs FOR SELECT USING (
-  auth.uid() = user_id::uuid 
-  OR EXISTS (SELECT 1 FROM user_roles WHERE user_roles.user_id = auth.uid() AND user_roles.role IN ('Owner', 'Accountant'))
+  auth.uid() = user_id::uuid OR has_elevated_role()
 );
 
 DROP POLICY IF EXISTS "Insert_Own_Audit" ON audit_logs;

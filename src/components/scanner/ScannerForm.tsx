@@ -527,9 +527,15 @@ export default function ScannerForm({
         </button>
 
         {hasAnalyzed && (
-          <button type="submit" disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
-            {saving ? 'Saving secure record…' : 'Save verified receipt'}
-          </button>
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-text-muted justify-center">
+              <span className="flex h-2 w-2 rounded-full bg-champagne animate-pulse"></span>
+              Google AI Transparency Disclosure: Data extracted via Gemini 2.5. Human review required.
+            </div>
+            <button type="submit" disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
+              {saving ? 'Saving secure record…' : 'Save verified receipt'}
+            </button>
+          </div>
         )}
       </div>
     </form>

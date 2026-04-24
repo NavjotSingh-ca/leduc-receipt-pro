@@ -23,6 +23,26 @@ type MatchResult = {
   score: number;
 };
 
+// Basic Levenshtein distance for fuzzy matching
+function levenshteinDistance(a: string, b: string): number {
+  const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
 export default function BankReconciliation({ receipts }: BankReconciliationProps) {
   const [bankData, setBankData] = useState<BankRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -70,13 +90,24 @@ export default function BankReconciliation({ receipts }: BankReconciliationProps
 
         // Exact amount match is huge
         if (Math.abs(receiptTotal - bankRow.amount) < 0.05) score += 60;
-        // Date match (fuzzy)
-        if (receipt.transaction_date === bankRow.date) score += 20;
+        // Date match (exact is 20, 1 day off is 10)
+        if (receipt.transaction_date === bankRow.date) {
+          score += 20;
+        } else if (receipt.transaction_date) {
+          const rDate = new Date(receipt.transaction_date).getTime();
+          const bDate = new Date(bankRow.date).getTime();
+          if (Math.abs(rDate - bDate) <= 86400000) score += 10;
+        }
         
-        // Vendor name fuzzy match
-        const rName = (receipt.vendor_name || '').toLowerCase();
-        const bDesc = bankRow.description.toLowerCase();
-        if (rName && bDesc.includes(rName.substring(0, 4))) score += 20;
+        // Vendor name fuzzy match using Levenshtein
+        const rName = (receipt.vendor_name || '').toLowerCase().trim();
+        const bDesc = bankRow.description.toLowerCase().trim();
+        if (rName && bDesc) {
+          const distance = levenshteinDistance(rName, bDesc.substring(0, rName.length));
+          if (distance === 0) score += 20;
+          else if (distance <= 2) score += 15;
+          else if (bDesc.includes(rName.substring(0, 4))) score += 10;
+        }
 
         if (score > highestScore) {
           highestScore = score;

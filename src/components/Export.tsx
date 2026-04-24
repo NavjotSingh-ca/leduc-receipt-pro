@@ -243,7 +243,7 @@ export default function Export({ receipts }: ExportProps) {
           '- This package is prepared for CRA recordkeeping and audit support.',
           '- Receipts.csv contains the transaction register with GST/PST, payment context, and metadata.',
           '- LOGBOOK.csv records filename, date, vendor, total, SHA-256 hash, and approval status.',
-          '- The receipt_proofs/ folder contains source receipt images for the selected period.',
+          '- The images/ folder contains source receipt images for the selected period.',
           '- SHA-256 hashes help verify document integrity under IC05-1R1-style controls.',
           '',
           'Chain of Custody:',
@@ -257,7 +257,7 @@ export default function Export({ receipts }: ExportProps) {
         ].join('\n')
       );
 
-      const imageFolder = zip.folder('receipt_proofs');
+      const imageFolder = zip.folder('images');
       if (imageFolder) {
         await Promise.allSettled(
           filteredReceipts.map(async (r) => {
@@ -359,7 +359,7 @@ export default function Export({ receipts }: ExportProps) {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-text-primary">Download CRA Audit Package (ZIP)</p>
               <p className="mt-1 text-sm leading-relaxed text-text-secondary">
-                Contains receipts.csv, LOGBOOK.csv, README.txt, and the receipt_proofs/ folder with source images for chain-of-custody.
+                Contains receipts.csv, LOGBOOK.csv, README.txt, and the images/ folder with source images for chain-of-custody.
               </p>
             </div>
             <Download className="mt-1 h-4 w-4 flex-shrink-0 text-text-muted" />
