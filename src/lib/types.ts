@@ -1,4 +1,4 @@
-/* ─── Shared Types — Receipt Pro v4.0 ─── */
+/* ─── Shared Types — Telos Labs v8.0 ─── */
 
 export type CaptureSource = 'camera' | 'upload' | 'email' | 'bulk-import' | 'accountant-import';
 export type UsageType = 'business' | 'personal' | 'mixed';

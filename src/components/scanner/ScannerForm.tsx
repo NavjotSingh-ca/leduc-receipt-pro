@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2 } from 'lucide-react';
 
@@ -59,7 +59,7 @@ export default function ScannerForm({
   const [isConfirmed, setIsConfirmed] = useState(false);
 
   // Initialize RHF
-  const { register, control, handleSubmit, watch, setValue, formState: { errors } } = useForm<ReceiptFormValues>({
+  const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<ReceiptFormValues>({
     resolver: zodResolver(receiptFormSchema),
     defaultValues: rawFormData,
   });
@@ -72,12 +72,11 @@ export default function ScannerForm({
   // Watch entire form for live metrics
   const formData = watch();
 
-  // Sync upstream incoming formData shifts (e.g. from Scanner AI hook)
+  // Sync upstream incoming formData shifts — reset entire form when AI data arrives
   useEffect(() => {
-    if (rawFormData.transaction_date && rawFormData.transaction_date !== formData.transaction_date) {
-      setValue('transaction_date', rawFormData.transaction_date);
-    }
-  }, [rawFormData, setValue]);
+    reset(rawFormData);
+    setIsConfirmed(false);
+  }, [rawFormData, reset]);
 
   const missingBN = Boolean(errors.business_number) || !String(formData.business_number ?? '').trim();
   
@@ -95,11 +94,16 @@ export default function ScannerForm({
 
   /* ─── Real-Time CRA Score ─── */
   const liveCRAScore = useMemo(() => computeLiveCRAScore({
-    ...formData,
+    vendor_name: formData.vendor_name ?? '',
+    vendor_address: formData.vendor_address ?? '',
+    business_number: formData.business_number ?? '',
+    transaction_date: formData.transaction_date ?? '',
     total_amount: safeNumber(formData.total_amount),
     subtotal: safeNumber(formData.subtotal),
     tax_amount: safeNumber(formData.tax_amount),
     pst_amount: safeNumber(formData.pst_amount),
+    payment_method: formData.payment_method ?? '',
+    notes: formData.notes ?? '',
     line_items: lineItems as ReceiptLineItem[],
   }), [formData, lineItems]);
 
@@ -110,7 +114,7 @@ export default function ScannerForm({
   /* ─── Explainable Policy Engine Flags ─── */
   const isHighValue = safeNumber(formData.total_amount) > 500;
   const needsVehicleId = formData.category?.toLowerCase().includes('fuel') && !formData.vehicle_id?.trim();
-  const isOutOfProvince = Boolean(formData.vendor_address) && !/Alberta|AB\b/i.test(formData.vendor_address);
+  const isOutOfProvince = Boolean(formData.vendor_address) && !/Alberta|AB\b/i.test(formData.vendor_address ?? '');
 
   const performSave = (data: ReceiptFormValues) => {
     // Math mismatch injects high_audit_risk flag without blocking Zod submission
@@ -382,7 +386,7 @@ export default function ScannerForm({
               <p className="mb-2 text-xs font-bold uppercase tracking-wide text-blue-400">Non-CAD Currency Detected: {formData.currency}</p>
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Exchange Rate to CAD</label>
-                <input type="number" step="0.0001" min="0" value={formData.exchange_rate} onChange={(e) => patchNumber('exchange_rate', e.target.value)} className={inputCls} placeholder="1.0000" />
+                <input type="number" step="0.0001" min="0" {...register('exchange_rate', { valueAsNumber: true })} className={inputCls} placeholder="1.0000" />
               </div>
             </div>
           )}

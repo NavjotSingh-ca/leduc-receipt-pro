@@ -11,21 +11,20 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Receipt Pro — CRA-Ready Receipt Scanner',
+  title: 'Telos Labs — CRA-Ready Receipt Intelligence',
   description:
     'Enterprise-grade Canadian receipt capture with SHA-256 integrity, CRA compliance scoring, and structured audit exports.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Receipt Pro',
+    title: 'Telos Labs',
   },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
   viewportFit: 'cover',
   themeColor: '#0c0c0c',
 };

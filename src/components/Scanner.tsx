@@ -77,14 +77,39 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         }
       }
 
+      let imageUrl: string | null = null;
+
+      // Upload image to Supabase Storage
+      if (imageSrc) {
+        try {
+          const response = await fetch(imageSrc);
+          const blob = await response.blob();
+          const filePath = `${user.id}/${Date.now()}-receipt.jpg`;
+          const { error: uploadError } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .upload(filePath, blob, { contentType: 'image/jpeg' });
+
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage
+              .from(STORAGE_BUCKET)
+              .getPublicUrl(filePath);
+            imageUrl = urlData?.publicUrl ?? null;
+          }
+        } catch {
+          // Image upload is non-blocking — continue saving without image
+        }
+      }
+
+      const aiEmbedding = await generateEmbedding(JSON.stringify(localFormData));
+
       let payload = {
         ...localFormData,
         user_id: user.id,
         duplicate_hash: computedHash,
         duplicate_warning: bypassCheck && Boolean(duplicateCandidate),
+        image_url: imageUrl,
+        semantic_embedding: aiEmbedding,
       } as Record<string, unknown>;
-
-      const aiEmbedding = await generateEmbedding(JSON.stringify(localFormData));
 
       const { data, error } = await supabase
         .from('receipts')
@@ -111,14 +136,14 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         setFormData(createBlankReceiptForm());
       }
     },
-    onError: (error) => {
+    onError: (error: Error) => {
+      const errorMsg = error.message || 'Failed to save receipt.';
       try {
         const offlineQueue = JSON.parse(localStorage.getItem('receipt_offline_queue') || '[]');
         offlineQueue.push({ timestamp: Date.now(), formData });
         localStorage.setItem('receipt_offline_queue', JSON.stringify(offlineQueue));
         showNotice('info', 'Network offline. Saved to local queue.');
-      } catch (locErr) {
-        const errorMsg = error instanceof Error ? error.message : 'Failed to save receipt.';
+      } catch {
         showNotice('error', errorMsg);
       }
     },

@@ -1,7 +1,7 @@
 {
-  "name": "Leduc Receipt Pro",
-  "short_name": "Receipt Pro",
-  "description": "Audit-ready receipt scanner for Canadian businesses",
+  "name": "Telos Labs",
+  "short_name": "Telos Labs",
+  "description": "Audit-ready receipt intelligence for Canadian businesses",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

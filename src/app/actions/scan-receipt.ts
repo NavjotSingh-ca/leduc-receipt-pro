@@ -169,19 +169,23 @@ function toStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-function normalizeDate(raw: string): string {
-  const s = raw.trim();
-  if (!s) return `${CURRENT_YEAR}-04-11`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return `${CURRENT_YEAR}-04-11`; // Fallback simplified for clarity
+function todayISO(): string {
+  return new Date().toISOString().split('T')[0];
 }
 
-function reconcileTaxes(raw: any, address: string) {
+function normalizeDate(raw: string): string {
+  const s = raw.trim();
+  if (!s) return todayISO();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return todayISO();
+}
+
+function reconcileTaxes(raw: Record<string, unknown>, _address: string) {
   return { 
     subtotal: toNum(raw.subtotal), 
-    tax_amount: toNum(raw.gst), 
-    pst_amount: toNum(raw.pst), 
-    total_amount: toNum(raw.total) 
+    tax_amount: toNum(raw.tax_amount ?? raw.gst), 
+    pst_amount: toNum(raw.pst_amount ?? raw.pst), 
+    total_amount: toNum(raw.total_amount ?? raw.total) 
   };
 }
 
@@ -253,12 +257,13 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
         missing_bn_warning: !toStr(parsed.vendor_tax_number) && tax_amount > 0,
         fraud_suspicion: Boolean(parsed.fraud_suspicion),
         fraud_reason: toStr(parsed.fraud_reason),
-        line_items: Array.isArray(parsed.line_items) ? parsed.line_items.map((i: any) => ({
+        line_items: Array.isArray(parsed.line_items) ? parsed.line_items.map((i: Record<string, unknown>) => ({
           description: toStr(i.description), quantity: toNum(i.quantity) || 1, unit_price: toNum(i.unit_price), tax_amount: toNum(i.tax_amount), line_total: toNum(i.line_total)
         })) : []
       },
     };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Receipt scan failed.' };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Receipt scan failed.';
+    return { success: false, error: message };
   }
 }

@@ -131,7 +131,7 @@ function FullPageLoader() {
           <ReceiptText className="h-8 w-8 text-champagne" />
         </div>
         <Loader2 className="h-6 w-6 animate-spin text-champagne" />
-        <p className="text-sm font-medium text-text-secondary">Loading Receipt Pro…</p>
+        <p className="text-sm font-medium text-text-secondary">Loading Telos Labs…</p>
       </div>
     </div>
   );
@@ -246,9 +246,9 @@ function AuthScreen() {
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-champagne/15 champagne-glow">
                 <ReceiptText className="h-7 w-7 text-champagne" />
               </div>
-              <h1 className="mt-8 text-5xl font-bold tracking-tight text-white">Receipt Pro <br/> <span className="text-champagne">Elite Edition</span></h1>
+              <h1 className="mt-8 text-5xl font-bold tracking-tight text-white">Telos Labs <br/> <span className="text-champagne">Elite Edition</span></h1>
               <p className="mt-4 max-w-md text-sm leading-7 text-text-secondary">
-                The ultimate CRA-compliant FinTech suite. Merkle-chain hashes, advanced semantic scanning, and enterprise roles.
+                The CRA-compliant receipt intelligence suite. SHA-256 integrity, semantic search, and enterprise-grade audit controls.
               </p>
             </div>
 
@@ -280,7 +280,7 @@ function AuthScreen() {
                 </h2>
                 <p className="mt-2 text-sm text-text-secondary">
                   {mode === 'signin'
-                    ? 'Enter your credentials to access the fortress.'
+                    ? 'Sign in to access your workspace.'
                     : 'Start capturing and organizing receipts securely.'}
                 </p>
               </div>
@@ -345,24 +345,29 @@ function AuthScreen() {
                     className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#dfcaaa] to-champagne px-4 py-3.5 text-sm font-bold text-black shadow-[0_0_15px_rgba(190,169,142,0.3)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loading && <Loader2 className="h-4 w-4 animate-spin text-black/50" />}
-                    {mode === 'signin' ? 'Sign In to Secure Vault' : 'Initialize Account'}
+                    {mode === 'signin' ? 'Sign In' : 'Create Account'}
                   </motion.button>
 
                   {mode === 'signin' && (
-                    <motion.button
+                    <button
                       type="button"
-                      onClick={handlePasskeySignIn}
-                      whileTap={{ scale: 0.96 }}
-                      disabled={loading || passkeyLoading}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={async () => {
+                        if (!email) {
+                          showToast('error', 'Enter your email first.');
+                          return;
+                        }
+                        try {
+                          const { error } = await supabase.auth.resetPasswordForEmail(email);
+                          if (error) throw error;
+                          showToast('success', 'Password reset email sent. Check your inbox.');
+                        } catch (err: unknown) {
+                          showToast('error', err instanceof Error ? err.message : 'Failed to send reset email.');
+                        }
+                      }}
+                      className="mt-2 text-xs font-medium text-text-secondary transition hover:text-champagne"
                     >
-                      {passkeyLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-white/50" />
-                      ) : (
-                        <Fingerprint className="h-4 w-4 text-emerald-light" />
-                      )}
-                      Use Passkey / Biometrics
-                    </motion.button>
+                      Forgot password?
+                    </button>
                   )}
                 </div>
 
@@ -575,7 +580,7 @@ export default function Page() {
               <ReceiptText className="h-5 w-5 text-champagne" />
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-tight text-text-primary">Receipt Pro</h1>
+              <h1 className="text-base font-bold tracking-tight text-text-primary">Telos Labs</h1>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-champagne">
                 CRA-ready records
               </p>
@@ -756,10 +761,7 @@ export default function Page() {
             if (role === 'Employee' && ['dashboard', 'export', 'audit', 'reconcile'].includes(item.id)) {
               return null;
             }
-            /* Accountant: hide audit */
-            if (role === 'Accountant' && item.id === 'audit') {
-              return null;
-            }
+            /* Accountant: grant access to audit (was incorrectly hidden) */
             return item.primary ? (
               <div key={item.id} className="relative -mt-6 flex flex-col items-center gap-1">
                 <motion.button

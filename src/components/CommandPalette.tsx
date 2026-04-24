@@ -75,7 +75,7 @@ export default function CommandPalette({ onAction }: CommandPaletteProps) {
                 <input
                   type="text"
                   autoFocus
-                  placeholder="Ask Receipt Pro..."
+                  placeholder="Search Telos Labs..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full bg-transparent text-lg font-medium text-white outline-none placeholder:text-white/30"

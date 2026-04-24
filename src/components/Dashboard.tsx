@@ -395,7 +395,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
               <BarList
                 data={spendingByCategory.map(s => ({ name: s.name, value: s.amount }))}
                 className="mt-2"
-                valueFormatter={(number) => currencyFormatter.format(number)}
+                valueFormatter={(number: number) => currencyFormatter.format(number)}
                 showAnimation={true}
               />
             </div>
@@ -428,7 +428,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
                 index="month"
                 categories={['amount']}
                 colors={['amber']}
-                valueFormatter={(number) => currencyFormatter.format(number)}
+                valueFormatter={(number: number) => currencyFormatter.format(number)}
                 showAnimation={true}
                 showLegend={false}
               />

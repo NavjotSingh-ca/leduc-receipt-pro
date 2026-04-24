@@ -237,7 +237,7 @@ export default function Export({ receipts }: ExportProps) {
       zip.file(
         'README.txt',
         [
-          'Receipt Pro CRA Audit Package',
+          'Telos Labs CRA Audit Package',
           '',
           'Compliance notes:',
           '- This package is prepared for CRA recordkeeping and audit support.',
@@ -377,7 +377,7 @@ export default function Export({ receipts }: ExportProps) {
               <FileArchive className="h-6 w-6" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-text-primary">Generate CRA IDEA Export</p>
+              <p className="text-sm font-bold text-text-primary">Generate Structured Audit Export</p>
               <p className="mt-1 text-sm leading-relaxed text-text-secondary">
                 Flat CSV mapped for the CRA IDEA audit software framework. 
               </p>

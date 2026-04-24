@@ -1,4 +1,4 @@
-/* ─── UI Utilities — Receipt Pro v4.0 ─── */
+/* ─── UI Utilities — Telos Labs v8.0 ─── */
 
 export function toNumber(v: unknown): number {
   const n = Number(v ?? 0);
@@ -107,32 +107,33 @@ export function shouldGlow(confidenceScore: number): boolean {
 }
 
 /* ─── Real-Time CRA Readiness Computation ─── */
+/* Accepts partial form shapes to be compatible with both ReceiptForm and ReceiptFormValues */
 
 export function computeLiveCRAScore(form: {
-  vendor_name: string;
-  vendor_address: string;
-  business_number: string;
-  transaction_date: string;
+  vendor_name?: string;
+  vendor_address?: string;
+  business_number?: string;
+  transaction_date?: string;
   total_amount: number;
   subtotal: number;
   tax_amount: number;
   pst_amount: number;
-  payment_method: string;
-  notes: string;
-  line_items: unknown[];
+  payment_method?: string;
+  notes?: string;
+  line_items?: unknown[];
 }): number {
   let score = 0;
 
-  if (form.vendor_name.trim()) score += 15;
-  if (form.vendor_address.trim()) score += 8;
-  if (form.business_number.trim()) score += 18;
-  if (form.transaction_date.trim()) score += 12;
+  if ((form.vendor_name ?? '').trim()) score += 15;
+  if ((form.vendor_address ?? '').trim()) score += 8;
+  if ((form.business_number ?? '').trim()) score += 18;
+  if ((form.transaction_date ?? '').trim()) score += 12;
   if (form.total_amount > 0) score += 12;
   if (form.subtotal > 0) score += 8;
   if (form.tax_amount >= 0) score += 7;
   if (form.payment_method && form.payment_method !== 'Unknown') score += 5;
-  if (form.notes.split(/\s+/).filter(Boolean).length >= 8) score += 5;
-  if (form.line_items.length > 0) score += 6;
+  if ((form.notes ?? '').split(/\s+/).filter(Boolean).length >= 8) score += 5;
+  if ((form.line_items ?? []).length > 0) score += 6;
 
   const mathMismatch =
     Math.abs(form.subtotal + form.tax_amount + form.pst_amount - form.total_amount) > 0.02;
