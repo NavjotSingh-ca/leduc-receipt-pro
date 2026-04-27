@@ -7,8 +7,9 @@ import JSZip from 'jszip';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { scanReceipt, generateEmbedding } from '@/app/actions/scan-receipt';
-import { generateDuplicateHash, generateAuditEventHash } from '@/lib/hash';
+import { generateDuplicateHash, generateIntegrityHash } from '@/lib/hash';
 import { supabase } from '@/lib/supabase';
+import { saveReceipt } from '@/lib/services/receipts';
 
 import ManualCropper from './scanner/ManualCropper';
 import DuplicateModal from './scanner/DuplicateModal';
@@ -78,12 +79,16 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       }
 
       let imageUrl: string | null = null;
+      let integrityHash = '';
 
-      // Upload image to Supabase Storage
+      // Upload image to Supabase Storage and compute hash
       if (imageSrc) {
         try {
           const response = await fetch(imageSrc);
           const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          integrityHash = await generateIntegrityHash(arrayBuffer);
+
           const filePath = `${user.id}/${Date.now()}-receipt.jpg`;
           const { error: uploadError } = await supabase.storage
             .from(STORAGE_BUCKET)
@@ -100,6 +105,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         }
       }
 
+      if (!integrityHash) {
+        // Fallback hash if no image
+        integrityHash = await generateIntegrityHash(new TextEncoder().encode(JSON.stringify(localFormData)));
+      }
+
       const aiEmbedding = await generateEmbedding(JSON.stringify(localFormData));
 
       let payload = {
@@ -111,13 +121,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         semantic_embedding: aiEmbedding,
       } as Record<string, unknown>;
 
-      const { data, error } = await supabase
-        .from('receipts')
-        .insert([payload])
-        .select('id')
-        .single();
-
-      if (error) throw error;
+      await saveReceipt(payload, integrityHash, user.id);
 
       return { success: true };
     },

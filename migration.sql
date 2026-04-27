@@ -159,3 +159,31 @@ BEGIN
   LIMIT match_count;
 END;
 $$;
+
+-- ─── 8. Missing Tables ───
+CREATE TABLE IF NOT EXISTS businessunits (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS receipt_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  receipt_id uuid REFERENCES receipts(id) ON DELETE CASCADE,
+  vendor_name text,
+  transaction_date date,
+  total_amount numeric,
+  category text,
+  notes text,
+  duplicate_hash text,
+  integrity_hash text,
+  archived_at timestamptz DEFAULT now(),
+  archived_by uuid REFERENCES auth.users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE businessunits ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Role_Based_Select_BU" ON businessunits;
+CREATE POLICY "Role_Based_Select_BU" ON businessunits FOR SELECT USING (
+  auth.uid() = user_id OR has_elevated_role()
+);

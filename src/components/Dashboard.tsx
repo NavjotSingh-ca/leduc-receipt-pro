@@ -198,11 +198,6 @@ function AccessDeniedDashboard({ receipts }: { receipts: ReceiptRow[] }) {
 }
 
 export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: DashboardProps) {
-  /* ─── Employee: Access Denied ─── */
-  if (role === 'Employee') {
-    return <AccessDeniedDashboard receipts={receipts} />;
-  }
-
   const {
     totalSpent,
     gstRecoverable,
@@ -294,6 +289,11 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
       reimbursementQueue,
     };
   }, [receipts]);
+
+  /* ─── Employee: Access Denied ─── */
+  if (role === 'Employee') {
+    return <AccessDeniedDashboard receipts={receipts} />;
+  }
 
   return (
     <section className="space-y-6 fade-in">

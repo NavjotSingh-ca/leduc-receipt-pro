@@ -25,6 +25,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { semanticSearchAction } from '@/app/actions/semantic-search';
+import { updateReceiptApproval, updateReceiptNotes } from '@/lib/services/receipts';
 
 import type { ReceiptRow } from '@/lib/types';
 import type { UserRole } from '@/lib/types';
@@ -139,7 +140,10 @@ export default function History({
     if (!search.trim()) return;
     setSemanticLoading(true);
     try {
-      const results = await semanticSearchAction(search.trim());
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      const userId = session?.user?.id;
+      const results = await semanticSearchAction(search.trim(), accessToken, userId);
       setSemanticResults(results.map((r) => r.id));
     } catch (err) {
       console.error(err);
@@ -374,28 +378,17 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
     setApprovalLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-      const updatePayload: Record<string, unknown> = {
-        approval_status: status,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (needsReimburse) {
-        updatePayload.reimbursement_status = status;
-      }
-
-      const { error } = await supabase
-        .from('receipts')
-        .update(updatePayload)
-        .eq('id', receipt.id);
-
-      if (error) throw new Error(error.message);
-
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        action: `receipt${status}`,
-        details: `Receipt ${status}: ${receipt.vendor_name} (${receipt.transaction_date}) by ${role}`,
-      });
+      await updateReceiptApproval(
+        receipt.id,
+        status,
+        user.id,
+        needsReimburse,
+        receipt.vendor_name || 'Unknown',
+        receipt.transaction_date || '',
+        role
+      );
 
       setLocalApproval(status);
       if (onUpdate) await onUpdate();
@@ -413,36 +406,9 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-      const { error: archiveError } = await supabase
-        .from('receipt_history')
-        .insert({
-          receipt_id: receipt.id,
-          vendor_name: receipt.vendor_name,
-          transaction_date: receipt.transaction_date,
-          total_amount: receipt.total_amount,
-          category: receipt.category,
-          notes: receipt.notes,
-          duplicate_hash: receipt.duplicate_hash,
-          integrity_hash: receipt.integrity_hash,
-          archived_at: new Date().toISOString(),
-          archived_by: user?.id ?? 'system',
-        });
-
-      if (archiveError) throw new Error(`History archive failed: ${archiveError.message}`);
-
-      const { error: updateError } = await supabase
-        .from('receipts')
-        .update({ notes: notesValue, updated_at: new Date().toISOString() })
-        .eq('id', receipt.id);
-
-      if (updateError) throw new Error(updateError.message);
-
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id,
-        action: 'receiptedited',
-        details: `Receipt updated: Notes modified for ${receipt.vendor_name}. Previous version archived.`,
-      });
+      await updateReceiptNotes(receipt.id, notesValue, user.id, receipt);
 
       setEditSuccess(true);
       setEditingNotes(false);

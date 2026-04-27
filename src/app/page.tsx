@@ -37,7 +37,8 @@ import { Marquee } from '@/components/magicui/marquee';
 import { supabase } from '@/lib/supabase';
 import type { ReceiptRow, UserRole } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
-
+import { getReceipts, getBusinessUnits, getAuditLogs } from '@/lib/services/receipts';
+import { getUserRole } from '@/lib/services/roles';
 type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit' | 'reconcile' | 'more';
 
 type ToastState = {
@@ -46,63 +47,6 @@ type ToastState = {
 };
 
 /* ─── Helpers ─── */
-
-function normalizeLineItems(rawValue: unknown): unknown[] | Record<string, unknown> | string | null {
-  if (rawValue === null || rawValue === undefined) return null;
-  if (Array.isArray(rawValue)) return rawValue;
-  if (typeof rawValue === 'object') return rawValue as Record<string, unknown>;
-  if (typeof rawValue === 'string') {
-    const trimmed = rawValue.trim();
-    if (!trimmed) return null;
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
-      return trimmed;
-    } catch {
-      return trimmed;
-    }
-  }
-  return null;
-}
-
-function normalizeReceipt(raw: Record<string, unknown>): ReceiptRow {
-  return {
-    id: String(raw?.id ?? ''),
-    user_id: String(raw?.user_id ?? ''),
-    vendor_name: (raw?.vendor_name as string) ?? '',
-    vendor_address: (raw?.vendor_address as string) ?? '',
-    vendor_tax_number: (raw?.vendor_tax_number as string) ?? '',
-    transaction_date: (raw?.transaction_date as string) ?? '',
-    transaction_time: (raw?.transaction_time as string) ?? '',
-    subtotal: Number(raw?.subtotal ?? 0),
-    tax_amount: Number(raw?.tax_amount ?? 0),
-    pst_amount: Number(raw?.pst_amount ?? 0),
-    total_amount: Number(raw?.total_amount ?? 0),
-    currency: (raw?.currency as string) ?? 'CAD',
-    payment_method: (raw?.payment_method as string) ?? '',
-    card_last_four: (raw?.card_last_four as string) ?? '',
-    category: (raw?.category as string) ?? '',
-    notes: (raw?.notes as string) ?? '',
-    job_code: (raw?.job_code as string) ?? '',
-    vehicle_id: (raw?.vehicle_id as string) ?? '',
-    usage_type: (raw?.usage_type as ReceiptRow['usage_type']) ?? null,
-    business_use_percent: Number(raw?.business_use_percent ?? 0),
-    line_items: normalizeLineItems(raw?.line_items ?? null) as ReceiptRow['line_items'],
-    integrity_hash: (raw?.integrity_hash as string) ?? '',
-    confidence_score: Number(raw?.confidence_score ?? 0),
-    cra_readiness_score: Number(raw?.cra_readiness_score ?? 0),
-    thermal_warning: Boolean(raw?.thermal_warning ?? false),
-    capture_source: (raw?.capture_source as string) ?? '',
-    image_url: (raw?.image_url as string) ?? null,
-    is_deleted: Boolean(raw?.is_deleted ?? false),
-    created_at: (raw?.created_at as string) ?? '',
-    paid_by: (raw?.paid_by as string) ?? null,
-    reimbursement_status: (raw?.reimbursement_status as string) ?? null,
-    needs_reimbursement: Boolean(raw?.needs_reimbursement ?? false),
-    approval_status: (raw?.approval_status as string) ?? null,
-  };
-}
 
 /* ─── Currency Formatter ─── */
 
@@ -484,50 +428,20 @@ export default function Page() {
 
   const { data: receipts = [], isLoading: receiptsLoading, refetch: fetchReceipts } = useQuery({
     queryKey: ['receipts', role, userId],
-    queryFn: async () => {
-      if (!userId) return [];
-
-      let queryReq = supabase
-        .from('receipts')
-        .select(`
-          id, user_id, vendor_name, vendor_address, vendor_tax_number, transaction_date, transaction_time,
-          subtotal, tax_amount, pst_amount, total_amount, currency, payment_method, card_last_four,
-          category, notes, job_code, vehicle_id, usage_type, business_use_percent, line_items,
-          integrity_hash, confidence_score, cra_readiness_score, thermal_warning, needs_reimbursement,
-          approval_status, paid_by, reimbursement_status, capture_source, image_url, is_deleted, created_at,
-          fraud_suspicion, fraud_reason
-        `)
-        .eq('is_deleted', false)
-        .order('created_at', { ascending: false });
-
-      if (role === 'Employee') {
-        queryReq = queryReq.eq('user_id', userId);
-      }
-
-      const { data, error } = await queryReq;
-      if (error) throw error;
-
-      return Array.isArray(data) ? data.map((row) => normalizeReceipt(row as Record<string, unknown>)) : [];
-    },
+    queryFn: async () => getReceipts(role, userId),
     enabled: !!userId,
   });
 
   // Parallel Prefetching to kill the 9-second waterfall
   useQuery({
     queryKey: ['business_units'],
-    queryFn: async () => {
-      const { data } = await supabase.from('businessunits').select('id, name');
-      return data || [];
-    },
+    queryFn: getBusinessUnits,
     enabled: !!userId,
   });
 
   useQuery({
     queryKey: ['audit_logs'],
-    queryFn: async () => {
-      const { data } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
-      return data || [];
-    },
+    queryFn: async () => getAuditLogs(50),
     enabled: !!userId && role !== 'Employee',
   });
 
