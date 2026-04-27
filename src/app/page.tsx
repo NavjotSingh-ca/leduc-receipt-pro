@@ -102,7 +102,6 @@ function AuthScreen() {
   const [inviteCode, setInviteCode] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const showToast = (type: ToastState['type'], msg: string) => {
@@ -144,28 +143,6 @@ function AuthScreen() {
       showToast('error', error instanceof Error ? error.message : 'Authentication failed.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handlePasskeySignIn = async () => {
-    setPasskeyLoading(true);
-    try {
-      // NOTE: User must have previously registered a WebAuthn device in Supabase 
-      // via supabase.auth.mfa.enroll({ factorType: 'webauthn' })
-      const { error } = await (supabase.auth as any).signInWithWebAuthn();
-      if (error) {
-        if (error.message.includes('not supported') || error.message.includes('No passkey')) {
-          showToast('error', 'Passkeys are not configured for this device or account.');
-        } else {
-          throw error;
-        }
-      } else {
-        showToast('success', 'Biometric login successful.');
-      }
-    } catch (error: unknown) {
-      showToast('error', error instanceof Error ? error.message : 'Passkey login failed.');
-    } finally {
-      setPasskeyLoading(false);
     }
   };
 
@@ -330,7 +307,7 @@ function AuthScreen() {
                     type="button"
                     onClick={handleSubmit}
                     whileTap={{ scale: 0.96 }}
-                    disabled={loading || passkeyLoading || (!accepted && mode === 'signup')}
+                    disabled={loading || (!accepted && mode === 'signup')}
                     className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#dfcaaa] to-champagne px-4 py-3.5 text-sm font-bold text-black shadow-[0_0_15px_rgba(190,169,142,0.3)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loading && <Loader2 className="h-4 w-4 animate-spin text-black/50" />}
@@ -478,14 +455,23 @@ function AppContent() {
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setUser(data.session?.user ?? null);
-      setAuthLoading(false);
+      if (data.session?.user) {
+        getUserRole(data.session.user.id).then(r => { if (mounted) { setRole(r); setAuthLoading(false); } });
+      } else {
+        setAuthLoading(false);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
       setUser(session?.user ?? null);
-      setAuthLoading(false);
+      if (session?.user) {
+        getUserRole(session.user.id).then(r => { if (mounted) { setRole(r); setAuthLoading(false); } });
+      } else {
+        setAuthLoading(false);
+      }
     });
 
     return () => {
@@ -621,29 +607,7 @@ function AppContent() {
                   transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                   className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-glass-border bg-surface p-2 shadow-2xl"
                 >
-                  <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-text-muted">
-                    Switch Role
-                  </p>
-
-                  {(['Owner', 'Employee', 'Accountant'] as const).map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => {
-                        setRole(item);
-                        setRoleOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
-                        role === item ? 'bg-champagne/10 text-champagne' : 'text-text-secondary hover:bg-surface-raised'
-                      }`}
-                    >
-                      <Layers className="h-4 w-4" />
-                      <span>{item}</span>
-                      {role === item && <CheckCircle2 className="ml-auto h-4 w-4 text-champagne" />}
-                    </button>
-                  ))}
-
-                  <div className="mt-2 border-t border-glass-border pt-2">
+                  <div className="pt-1">
                     <button
                       type="button"
                       onClick={handleSignOut}

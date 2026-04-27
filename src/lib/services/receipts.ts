@@ -126,9 +126,21 @@ export const getBusinessUnits = async () => {
 };
 
 export const getAuditLogs = async (limit = 50) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Find users invited by this user to restrict data access
+  const { data: invitedUsers } = await supabase
+    .from('user_roles')
+    .select('user_id')
+    .eq('invited_by', user.id);
+
+  const allowedUserIds = [user.id, ...(invitedUsers?.map(u => u.user_id) || [])];
+
   const { data, error } = await supabase
     .from('audit_logs')
     .select('*')
+    .in('user_id', allowedUserIds)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;

@@ -34,9 +34,17 @@ CREATE TABLE IF NOT EXISTS user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   role text NOT NULL DEFAULT 'Employee' CHECK (role IN ('Owner','Employee','Accountant')),
+  invited_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz DEFAULT now(),
   UNIQUE(user_id)
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_roles' AND column_name = 'invited_by') THEN
+    ALTER TABLE user_roles ADD COLUMN invited_by uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- ─── 3. Receipt Line Items (Deep Storage) ───
 CREATE TABLE IF NOT EXISTS receipt_line_items (
@@ -172,18 +180,127 @@ CREATE TABLE IF NOT EXISTS receipt_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   receipt_id uuid REFERENCES receipts(id) ON DELETE CASCADE,
   vendor_name text,
-  transaction_date date,
+  vendor_tax_number text,
+  business_number text,
+  transaction_date text,
   total_amount numeric,
+  subtotal numeric,
+  tax_amount numeric,
+  pst_amount numeric,
+  payment_method text,
   category text,
   notes text,
+  document_type text,
+  project_id uuid,
+  exchange_rate numeric,
+  cad_equivalent numeric,
   duplicate_hash text,
   integrity_hash text,
   archived_at timestamptz DEFAULT now(),
   archived_by uuid REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
+DO $$
+BEGIN
+  -- Batch add missing columns to receipt_history if table existed in v2
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'vendor_tax_number') THEN
+    ALTER TABLE receipt_history ADD COLUMN vendor_tax_number text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'business_number') THEN
+    ALTER TABLE receipt_history ADD COLUMN business_number text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'subtotal') THEN
+    ALTER TABLE receipt_history ADD COLUMN subtotal numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'tax_amount') THEN
+    ALTER TABLE receipt_history ADD COLUMN tax_amount numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'pst_amount') THEN
+    ALTER TABLE receipt_history ADD COLUMN pst_amount numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'payment_method') THEN
+    ALTER TABLE receipt_history ADD COLUMN payment_method text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'document_type') THEN
+    ALTER TABLE receipt_history ADD COLUMN document_type text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'project_id') THEN
+    ALTER TABLE receipt_history ADD COLUMN project_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'exchange_rate') THEN
+    ALTER TABLE receipt_history ADD COLUMN exchange_rate numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'cad_equivalent') THEN
+    ALTER TABLE receipt_history ADD COLUMN cad_equivalent numeric;
+  END IF;
+END $$;
+
 ALTER TABLE businessunits ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Role_Based_Select_BU" ON businessunits;
 CREATE POLICY "Role_Based_Select_BU" ON businessunits FOR SELECT USING (
   auth.uid() = user_id OR has_elevated_role()
 );
+
+CREATE TABLE IF NOT EXISTS projects (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  code text,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS access_codes (
+  code text PRIMARY KEY,
+  role text NOT NULL,
+  business_unit_id uuid REFERENCES businessunits(id) ON DELETE CASCADE,
+  created_by uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  expires_at timestamptz DEFAULT now() + interval '7 days'
+);
+
+DROP FUNCTION IF EXISTS generate_access_code(uuid, text, uuid);
+CREATE OR REPLACE FUNCTION generate_access_code(p_created_by uuid, p_role text, p_bu_id uuid DEFAULT NULL)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_code text;
+BEGIN
+  v_code := lpad(floor(random() * 1000000)::text, 6, '0');
+  
+  INSERT INTO access_codes (code, role, business_unit_id, created_by)
+  VALUES (v_code, p_role, p_bu_id, p_created_by);
+  
+  RETURN v_code;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS redeem_access_code(text, uuid);
+CREATE OR REPLACE FUNCTION redeem_access_code(p_code text, p_user_id uuid)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_role text;
+  v_bu_id uuid;
+  v_created_by uuid;
+BEGIN
+  SELECT role, business_unit_id, created_by INTO v_role, v_bu_id, v_created_by
+  FROM access_codes
+  WHERE code = p_code AND expires_at > now();
+  
+  IF NOT FOUND THEN
+    RETURN json_build_object('success', false, 'error', 'Invalid or expired access code');
+  END IF;
+  
+  INSERT INTO user_roles (user_id, role, invited_by)
+  VALUES (p_user_id, v_role, v_created_by)
+  ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, invited_by = EXCLUDED.invited_by;
+  
+  DELETE FROM access_codes WHERE code = p_code;
+  
+  RETURN json_build_object('success', true, 'role', v_role);
+END;
+$$;

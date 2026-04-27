@@ -308,12 +308,9 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
     };
   }, [receipts]);
 
-  /* ─── Employee: Access Denied ─── */
-  if (role === 'Employee') {
-    return <AccessDeniedDashboard receipts={receipts} />;
-  }
-
-  return (
+  return role === 'Employee' ? (
+    <AccessDeniedDashboard receipts={receipts} />
+  ) : (
     <section className="space-y-6 fade-in">
       <div className="flex items-end justify-between gap-3">
         <div>
