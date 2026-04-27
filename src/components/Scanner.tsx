@@ -29,11 +29,55 @@ interface NoticeState {
 const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.6;
 const STORAGE_BUCKET = 'receipt-images';
+const BATCH_LIMIT = 50;
+const BLUR_THRESHOLD = 80; // Laplacian variance — below this = blurry
+
+/** Laplacian variance blur detection via greyscale canvas convolution */
+async function computeBlurScore(dataUrl: string): Promise<number> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = 200;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve(999); return; }
+      ctx.drawImage(img, 0, 0, size, size);
+      const { data } = ctx.getImageData(0, 0, size, size);
+      // Convert to greyscale
+      const grey: number[] = [];
+      for (let i = 0; i < data.length; i += 4) {
+        grey.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      }
+      // Laplacian kernel: [0,1,0,1,-4,1,0,1,0]
+      let sumSq = 0;
+      let count = 0;
+      for (let y = 1; y < size - 1; y++) {
+        for (let x = 1; x < size - 1; x++) {
+          const idx = y * size + x;
+          const lap =
+            grey[idx - size] +
+            grey[idx + size] +
+            grey[idx - 1] +
+            grey[idx + 1] -
+            4 * grey[idx];
+          sumSq += lap * lap;
+          count++;
+        }
+      }
+      resolve(count > 0 ? sumSq / count : 999);
+    };
+    img.onerror = () => resolve(999);
+    img.src = dataUrl;
+  });
+}
 
 export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const formContainerRef = useRef<HTMLDivElement | null>(null);
+  const screenshotInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
 
   const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
@@ -57,7 +101,12 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const [batchProgress, setBatchProgress] = useState(0);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
 
+  // Blur detection state
+  const [blurScore, setBlurScore] = useState<number | null>(null);
+  const [showBlurWarning, setShowBlurWarning] = useState(false);
+
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [sqlError, setSqlError] = useState<string | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const saveMutation = useMutation({
@@ -149,15 +198,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       }
     },
     onError: (error: Error) => {
-      const errorMsg = error.message || 'Failed to save receipt.';
-      try {
-        const offlineQueue = JSON.parse(localStorage.getItem('receipt_offline_queue') || '[]');
-        offlineQueue.push({ timestamp: Date.now(), formData });
-        localStorage.setItem('receipt_offline_queue', JSON.stringify(offlineQueue));
-        showNotice('info', 'Network offline. Saved to local queue.');
-      } catch {
-        showNotice('error', errorMsg);
-      }
+      setSqlError(error.message || 'A critical database error occurred.');
     },
     onSettled: () => {
       setSaving(false);
@@ -351,9 +392,23 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   async function onCapture(file: File) {
     try {
       setNotice(null);
+      setShowBlurWarning(false);
 
       const rawDataUrl = await readFileAsDataUrl(file);
       const resizedDataUrl = await resizeTo2000px(rawDataUrl, 'image/jpeg');
+
+      // Blur detection before showing cropper
+      const score = await computeBlurScore(resizedDataUrl);
+      setBlurScore(score);
+
+      if (score < BLUR_THRESHOLD && !isBatchProcessing) {
+        setShowBlurWarning(true);
+        setImageSrc(resizedDataUrl); // still set so user can see it
+        setOriginalFileName(file.name);
+        setMimeType(file.type || 'image/jpeg');
+        // Don't open cropper yet — let user decide
+        return;
+      }
 
       setOriginalFileName(file.name);
       setMimeType(file.type || 'image/jpeg');
@@ -387,7 +442,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     }
   }
 
-  async function onProcessAI(explicitSrc?: string) {
+  async function onProcessAI(explicitSrc?: string, source: string = 'camera') {
     const srcToUse = explicitSrc || imageSrc;
     if (!srcToUse) {
       showNotice('error', 'Please capture a receipt first.');
@@ -398,7 +453,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     setNotice(null);
 
     try {
-      const result = await scanReceipt(srcToUse);
+      const result = await scanReceipt(srcToUse, source);
 
       if (!result.success) {
         showNotice('error', result.error);
@@ -499,6 +554,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       }
     }
 
+    if (processedFiles.length > BATCH_LIMIT) {
+      showNotice('info', `Batch limit is ${BATCH_LIMIT} files. Only the first ${BATCH_LIMIT} will be processed.`);
+      processedFiles = processedFiles.slice(0, BATCH_LIMIT);
+    }
+
     if (processedFiles.length === 0) {
       showNotice('error', 'No valid image files found to process.');
       return;
@@ -547,6 +607,22 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         }}
       />
 
+      <input
+        ref={screenshotInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            await onCapture(file);
+            setFormData(prev => ({ ...prev, capture_source: 'email_screenshot' }));
+            setTimeout(() => onProcessAI(undefined, 'email_screenshot'), 500);
+          }
+          if (screenshotInputRef.current) screenshotInputRef.current.value = '';
+        }}
+      />
+
       {notice && (
         <div
           className={[
@@ -563,11 +639,53 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         </div>
       )}
 
+      {/* Blur Warning Banner */}
+      <AnimatePresence>
+        {showBlurWarning && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-4"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400" />
+              <div className="flex-1">
+                <p className="text-sm font-bold text-amber-300">Image Quality Warning</p>
+                <p className="mt-1 text-xs text-amber-400/80">
+                  This image appears blurry (score: {Math.round(blurScore ?? 0)}). CRA requires legible receipts for ITC claims. Retake for best results.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowBlurWarning(false); cameraInputRef.current?.click(); }}
+                    className="rounded-xl bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-400 transition hover:bg-amber-500/25"
+                  >
+                    Retake Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowBlurWarning(false);
+                      setFormData(prev => ({ ...createBlankReceiptForm(), capture_source: prev.capture_source, usage_type: prev.usage_type, business_use_percent: prev.business_use_percent, business_unit_id: prev.business_unit_id }));
+                      setShowCropper(true);
+                    }}
+                    className="rounded-xl bg-surface-raised px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:text-text-primary"
+                  >
+                    Use Anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="overflow-hidden rounded-3xl border border-glass-border bg-surface shadow-sm">
         <div className="border-b border-glass-border px-5 py-4">
-          <h2 className="text-lg font-bold text-text-primary">Scanner</h2>
+          <h2 className="text-lg font-bold text-text-primary">9 Star Labs Scanner</h2>
           <p className="mt-1 text-sm text-text-secondary">
-            Capture, crop, extract, verify, and save a CRA-ready receipt record.
+            Capture, crop, extract, verify, and save a CRA-ready receipt record. Up to {BATCH_LIMIT} files per batch.
           </p>
         </div>
 
@@ -584,26 +702,35 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                   Images are resized to 1600px before AI processing for consistent OCR quality.
                 </p>
 
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <motion.button
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
                     whileTap={{ scale: 0.92 }}
                     whileHover={{ scale: 1.03 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3 text-sm font-semibold text-obsidian shadow-lg shadow-champagne/20 transition hover:bg-champagne-dim"
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-4 py-3 text-sm font-semibold text-obsidian shadow-lg shadow-champagne/20 transition hover:bg-champagne-dim"
                   >
                     <Camera className="h-4 w-4" />
-                    Use camera
+                    Camera
                   </motion.button>
 
                   <button
                     type="button"
                     onClick={() => galleryInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-5 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-4 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
                   >
                     <Upload className="h-4 w-4" />
-                    Upload image
+                    Upload
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => screenshotInputRef.current?.click()}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-4 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
+                  >
+                    <ScanLine className="h-4 w-4" />
+                    Screenshot
                   </button>
                 </div>
               </div>
@@ -616,9 +743,9 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                     <div className="flex items-center gap-3 relative z-10">
                       <Layers className="h-5 w-5 animate-pulse text-champagne" />
                       <div className="flex-1">
-                        <p className="text-sm font-bold text-champagne">Batch Extraction Engine Active</p>
+                        <p className="text-sm font-bold text-champagne">GALAXY Extraction Engine Active</p>
                         <p className="text-xs text-champagne/80">
-                          Analyzing Receipt {batchProgress} of {batchTotal}...
+                          Processing {batchProgress} of {batchTotal}...
                         </p>
                       </div>
                       <Loader2 className="h-4 w-4 animate-spin text-champagne" />
@@ -717,6 +844,40 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
           onContinue={onContinueDuplicateSave}
         />
       )}
+      <AnimatePresence>
+        {sqlError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-md rounded-[2.5rem] border border-red-500/30 bg-surface p-8 shadow-2xl"
+            >
+              <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-500/10 text-red-500">
+                <AlertCircle className="h-8 w-8" />
+              </div>
+              <h3 className="text-xl font-bold text-text-primary">Database Integrity Error</h3>
+              <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+                The vault rejected this entry. This usually happens if a required field is malformed or a connection was interrupted.
+              </p>
+              <div className="mt-6 rounded-2xl bg-red-500/[0.05] p-4 font-mono text-xs text-red-400 border border-red-500/10 overflow-x-auto">
+                {sqlError}
+              </div>
+              <button
+                onClick={() => setSqlError(null)}
+                className="mt-8 w-full rounded-2xl bg-surface-raised py-4 text-sm font-bold text-text-primary transition hover:bg-surface-hover"
+              >
+                Dismiss & Correct
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

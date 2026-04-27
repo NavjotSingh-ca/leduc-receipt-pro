@@ -10,6 +10,13 @@ import { CATEGORIES, PAYMENT_METHODS, USAGE_TYPES } from './types';
 import { shouldGlow, computeLiveCRAScore } from '@/lib/ui-utils';
 import { receiptFormSchema, ReceiptFormValues } from '@/lib/validations';
 import { isMathMismatch } from '@/lib/finance-utils';
+import { dinero, add, equal } from 'dinero.js';
+
+const CAD = {
+  code: 'CAD',
+  base: 10,
+  exponent: 2,
+};
 
 const inputCls =
   'w-full rounded-xl border border-glass-border bg-surface-raised px-3 py-2.5 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-champagne/40 focus:ring-2 focus:ring-champagne/15';
@@ -123,6 +130,22 @@ export default function ScannerForm({
     setFormData(finalData as unknown as ReceiptForm);
     onSave();
   };
+
+  const isMathValid = useMemo(() => {
+    try {
+      const dSub = dinero({ amount: Math.round(safeNumber(formData.subtotal) * 100), currency: CAD });
+      const dTax = dinero({ amount: Math.round(safeNumber(formData.tax_amount) * 100), currency: CAD });
+      const dPst = dinero({ amount: Math.round(safeNumber(formData.pst_amount) * 100), currency: CAD });
+      const dTotal = dinero({ amount: Math.round(safeNumber(formData.total_amount) * 100), currency: CAD });
+
+      const sum = add(dSub, add(dTax, dPst));
+      return equal(sum, dTotal);
+    } catch {
+      return false;
+    }
+  }, [formData.subtotal, formData.tax_amount, formData.pst_amount, formData.total_amount]);
+
+  const canSave = hasAnalyzed && isConfirmed && isMathValid && !saving;
 
   return (
     <form onSubmit={handleSubmit(performSave)} className="space-y-5 fade-in">
@@ -553,9 +576,16 @@ export default function ScannerForm({
       </section>
 
       {/* Confirmation & Save */}
-      {/* Confirmation & Save (Sticky Bottom Bar) */}
-      <div className="sticky bottom-0 z-40 -mx-5 -mb-5 border-t border-glass-border bg-obsidian/95 p-5 pb-safe-bottom backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.6)] sm:rounded-b-3xl">
+      {/* Confirmation & Save (Fixed Bottom Bar) */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-glass-border bg-obsidian/80 p-5 pb-safe-bottom backdrop-blur-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.8)] sm:rounded-t-3xl">
         <div className="mx-auto max-w-lg space-y-4">
+          {!isMathValid && hasAnalyzed && (
+            <div className="flex items-center gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-red-400 border border-red-500/20">
+              <AlertTriangle className="h-3 w-3" />
+              Math Error: Subtotal + GST + PST ≠ Total
+            </div>
+          )}
+          
           <button 
             type="button" 
             onClick={() => setIsConfirmed((v) => !v)} 
@@ -566,7 +596,7 @@ export default function ScannerForm({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-text-primary">I confirm that these figures are accurate.</p>
-              <p className="mt-1 text-[10px] uppercase tracking-wider text-text-muted">Required by CRA Compliance</p>
+              <p className="mt-1 text-[10px] uppercase tracking-wider text-text-muted">CRA Compliance Lock</p>
             </div>
           </button>
 
@@ -574,13 +604,13 @@ export default function ScannerForm({
             <div className="pt-1">
               <button 
                 type="submit" 
-                disabled={saving || !isConfirmed} 
+                disabled={!canSave} 
                 className="inline-flex h-14 w-full items-center justify-center rounded-[2rem] bg-emerald-success px-6 text-base font-black text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-40 shadow-xl shadow-emerald-success/20"
               >
                 {saving ? (
                   <div className="flex items-center gap-3">
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>Saving to Vault…</span>
+                    <span>Vaulting Receipt...</span>
                   </div>
                 ) : (
                   'Save Verified Record'

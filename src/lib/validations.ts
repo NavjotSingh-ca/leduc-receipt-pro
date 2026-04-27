@@ -20,6 +20,7 @@ export const receiptFormSchema = z.object({
   vendor_name: z.string().min(2, 'Vendor name is required'),
   vendor_address: z.string(),
   business_number: z.string().max(15, 'GST/BN should be at most 15 characters'),
+  vendor_tax_number: z.string().max(15, 'Tax Number should be at most 15 characters'),
   transaction_date: z.string().min(1, 'Date is required'),
   transaction_time: z.string(),
 
@@ -59,6 +60,8 @@ export const receiptFormSchema = z.object({
   paid_by: z.string(),
   reimbursement_status: z.string().nullable().optional(),
   approval_status: z.string().nullable().optional(),
+
+  updated_at: z.string().optional(),
 
   line_items: z.array(receiptLineItemSchema).optional(),
 }).superRefine((data, ctx) => {

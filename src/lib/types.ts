@@ -1,6 +1,6 @@
-/* ─── Shared Types — Telos Labs v8.0 ─── */
+/* ─── Shared Types — 9 Star Labs v2.0 ─── */
 
-export type CaptureSource = 'camera' | 'upload' | 'email' | 'bulk-import' | 'accountant-import';
+export type CaptureSource = 'camera' | 'upload' | 'email' | 'email_screenshot' | 'bulk-import' | 'accountant-import';
 export type UsageType = 'business' | 'personal' | 'mixed';
 export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'estimate' | 'unknown';
 export type SourceFileType = 'image' | 'pdf' | 'heic' | 'png' | 'jpg' | 'jpeg' | '';
@@ -26,6 +26,7 @@ export interface ReceiptRow {
   id: string;
   user_id: string;
   business_unit_id?: string | null;
+  project_id?: string | null;
 
   vendor_name: string;
   vendor_address?: string | null;
@@ -37,6 +38,11 @@ export interface ReceiptRow {
   tax_amount: number;
   pst_amount?: number | null;
 
+  /** Non-CAD receipt support */
+  currency: string;
+  exchange_rate?: number | null;
+  cad_equivalent?: number | null;
+
   transaction_date: string;
   transaction_time?: string | null;
 
@@ -46,7 +52,6 @@ export interface ReceiptRow {
 
   category: string;
   notes: string;
-  currency: string;
 
   image_url?: string | null;
   source_file_name?: string | null;
@@ -58,8 +63,12 @@ export interface ReceiptRow {
   confidence_score?: number | null;
   cra_readiness_score?: number | null;
 
+  /** Blur detection score (0–1). Values below 0.15 were flagged as blurry at capture. */
+  blur_score?: number | null;
+
   thermal_warning?: boolean | null;
   capture_source?: CaptureSource | string | null;
+  document_type?: DocumentType | string | null;
   usage_type?: UsageType | null;
   business_use_percent?: number | null;
 
@@ -89,6 +98,8 @@ export interface ReceiptRow {
   math_mismatch_warning?: boolean | null;
   missing_bn_warning?: boolean | null;
   high_audit_risk?: boolean | null;
+  fraud_suspicion?: boolean | null;
+  fraud_reason?: string | null;
 
   /* ─── Optimistic UI ─── */
   _optimistic?: boolean;
@@ -99,5 +110,29 @@ export interface AuditLogRow {
   user_id?: string;
   action?: string;
   details?: string;
+  event_hash?: string | null;
+  previous_hash?: string | null;
   created_at?: string;
+}
+
+/** Project / Job code entity */
+export interface Project {
+  id: string;
+  name: string;
+  code?: string | null;
+  user_id: string;
+  created_at?: string | null;
+}
+
+/** Employee invite code */
+export interface AccessCode {
+  id: string;
+  code: string;
+  role: UserRole;
+  business_unit_id?: string | null;
+  created_by: string;
+  expires_at: string;
+  used_by?: string | null;
+  used_at?: string | null;
+  created_at?: string | null;
 }

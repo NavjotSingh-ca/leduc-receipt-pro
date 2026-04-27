@@ -187,7 +187,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col bg-obsidian overflow-hidden"
+      className="fixed inset-0 z-[100] h-[100dvh] w-screen flex flex-col bg-obsidian overflow-hidden"
       onClick={onCancel}
     >
       {/* Header (Fixed) */}
@@ -205,7 +205,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
 
       {/* Main Image Area (No Scroll) */}
       <div 
-        className="relative flex-1 flex items-center justify-center p-4 bg-obsidian overflow-hidden"
+        className="relative flex-1 flex items-center justify-center p-4 bg-obsidian overflow-hidden h-[calc(100dvh-200px)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div
@@ -253,9 +253,9 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
         </div>
       </div>
 
-      {/* Action Bar (Fixed Bottom) */}
+      {/* Footer (Fixed Bottom Bar) */}
       <div 
-        className="flex-none border-t border-glass-border bg-surface-raised p-5 pb-safe-bottom z-10"
+        className="fixed bottom-0 left-0 right-0 z-[110] border-t border-glass-border bg-obsidian/70 p-6 backdrop-blur-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto max-w-lg flex items-center justify-between gap-3">
@@ -280,10 +280,10 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
               type="button"
               onClick={applyCrop}
               disabled={!crop}
-              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-champagne px-6 text-sm font-bold text-obsidian transition hover:bg-champagne-dim disabled:opacity-50"
+              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-champagne px-6 text-sm font-black text-obsidian shadow-xl shadow-champagne/20 transition hover:bg-champagne-dim disabled:opacity-50"
             >
               <Check className="h-5 w-5" />
-              Apply
+              Apply Crop
             </button>
           </div>
         </div>

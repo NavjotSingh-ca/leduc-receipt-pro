@@ -304,6 +304,20 @@ export default function History({
                             Uploading
                           </span>
                         )}
+
+                        {/* Estimate Warning Badge */}
+                        {receipt.document_type === 'estimate' && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-400">
+                            Non-Deductible Estimate
+                          </span>
+                        )}
+
+                        {/* Fraud Badge */}
+                        {receipt.fraud_suspicion && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-400">
+                            Fraud Flag
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
@@ -369,6 +383,7 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
   
   // Full Edit State
   const [vendorName, setVendorName] = useState(receipt.vendor_name ?? '');
+  const [vendorTaxNumber, setVendorTaxNumber] = useState(receipt.vendor_tax_number ?? receipt.business_number ?? '');
   const [totalAmount, setTotalAmount] = useState(receipt.total_amount ?? 0);
   const [transactionDate, setTransactionDate] = useState(receipt.transaction_date ?? '');
   const [category, setCategory] = useState(receipt.category ?? '');
@@ -422,6 +437,8 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
       
       await updateReceipt(receipt.id, {
         vendor_name: vendorName,
+        vendor_tax_number: vendorTaxNumber,
+        business_number: vendorTaxNumber, // Maintain backward compatibility
         total_amount: Number(totalAmount),
         transaction_date: transactionDate,
         category: category,
@@ -568,6 +585,19 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
                     />
                   ) : (
                     <p className="mt-0.5 text-sm font-medium text-text-primary">{vendorName || '—'}</p>
+                  )}
+                </div>
+                <div className="sm:col-span-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">GST/BN</p>
+                  {editing ? (
+                    <input 
+                      type="text" 
+                      value={vendorTaxNumber} 
+                      onChange={(e) => setVendorTaxNumber(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-glass-border bg-surface-raised px-3 py-1.5 text-sm text-text-primary outline-none focus:border-champagne/40"
+                    />
+                  ) : (
+                    <p className="mt-0.5 text-sm font-medium text-text-primary">{vendorTaxNumber || '—'}</p>
                   )}
                 </div>
                 <div className="sm:col-span-2">

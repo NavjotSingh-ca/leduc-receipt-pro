@@ -11,14 +11,19 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Telos Labs — CRA-Ready Receipt Intelligence',
+  title: '9 Star Labs — CRA-Ready Receipt Intelligence',
   description:
-    'Enterprise-grade Canadian receipt capture with SHA-256 integrity, CRA compliance scoring, and structured audit exports.',
+    'Enterprise-grade Canadian receipt capture with SHA-256 integrity, CRA compliance scoring, and structured audit exports. Built for Alberta construction businesses and their accountants.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Telos Labs',
+    title: '9 Star Labs',
+  },
+  openGraph: {
+    title: '9 Star Labs — CRA-Ready Receipt Intelligence',
+    description: 'The CRA-compliant receipt intelligence suite for Canadian contractors.',
+    type: 'website',
   },
 };
 
@@ -35,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en-CA" className={inter.variable}>
       <body className="font-sans antialiased bg-obsidian selection:bg-champagne/30">
         <SmoothScroll>
           <Providers>

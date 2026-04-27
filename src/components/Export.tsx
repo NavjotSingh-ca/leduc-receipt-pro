@@ -87,10 +87,11 @@ function stringifyLineItems(lineItems: ReceiptRow['line_items']): string {
 function buildCSV(receipts: ReceiptRow[]): string {
   const headers = [
     'Date', 'Vendor', 'Vendor Address', 'Category', 'Payment Method',
-    'Card Last 4', 'Currency', 'Subtotal', 'GST', 'PST', 'Total',
-    'Business Number', 'Business Use %', 'Job Code', 'Vehicle ID',
-    'Notes', 'Paid By', 'Reimbursement Status', 'Approval Status',
-    'AI Fraud Suspicion', 'AI Fraud Reason',
+    'Card Last 4', 'Currency', 'Exchange Rate', 'CAD Equivalent',
+    'Subtotal', 'GST', 'PST', 'Total',
+    'Business Number (GST/BN)', 'Business Use %', 'Job Code', 'Vehicle ID',
+    'Document Type', 'Notes', 'Paid By', 'Reimbursement Status', 'Approval Status',
+    'AI Fraud Suspicion', 'AI Fraud Reason', 'Blur Score',
     'Line Items', 'Integrity Hash', 'Image URL',
   ];
 
@@ -102,6 +103,8 @@ function buildCSV(receipts: ReceiptRow[]): string {
     String(r.payment_method ?? ''),
     String(r.card_last_four ?? ''),
     String(r.currency ?? 'CAD'),
+    toNumber((r as any).exchange_rate ?? 1).toFixed(4),
+    (r as any).cad_equivalent != null ? toNumber((r as any).cad_equivalent).toFixed(2) : '',
     toNumber(r.subtotal).toFixed(2),
     getGST(r).toFixed(2),
     getPST(r).toFixed(2),
@@ -110,12 +113,14 @@ function buildCSV(receipts: ReceiptRow[]): string {
     toNumber(r.business_use_percent ?? 100).toFixed(0),
     String(r.job_code ?? ''),
     String(r.vehicle_id ?? ''),
+    String(r.document_type ?? 'receipt'),
     String(r.notes ?? ''),
     String(r.paid_by ?? ''),
     String(r.reimbursement_status ?? ''),
     String(r.approval_status ?? ''),
     (r as any).fraud_suspicion ? 'TRUE' : 'FALSE',
     String((r as any).fraud_reason ?? ''),
+    (r as any).blur_score != null ? toNumber((r as any).blur_score).toFixed(1) : '',
     stringifyLineItems(r.line_items),
     getHash(r),
     getImageUrl(r),
@@ -147,7 +152,11 @@ function buildIDEACSV(receipts: ReceiptRow[]): string {
 }
 
 function buildLogbook(receipts: ReceiptRow[]): string {
-  const headers = ['Filename', 'Date', 'Vendor', 'Total', 'SHA-256 Hash', 'Approval Status'];
+  const headers = [
+    'Filename', 'Date', 'Vendor', 'Total (Original)', 'Currency',
+    'CAD Equivalent', 'Exchange Rate', 'Document Type', 'SHA-256 Hash',
+    'Blur Score', 'Approval Status', 'Estimate Warning',
+  ];
 
   const rows = receipts
     .filter((r) => getImageUrl(r) || getHash(r))
@@ -166,8 +175,14 @@ function buildLogbook(receipts: ReceiptRow[]): string {
         getDate(r),
         getVendor(r),
         getTotal(r).toFixed(2),
+        String(r.currency ?? 'CAD'),
+        (r as any).cad_equivalent != null ? toNumber((r as any).cad_equivalent).toFixed(2) : getTotal(r).toFixed(2),
+        toNumber((r as any).exchange_rate ?? 1).toFixed(4),
+        String(r.document_type ?? 'receipt'),
         getHash(r),
+        (r as any).blur_score != null ? toNumber((r as any).blur_score).toFixed(1) : 'N/A',
         String(r.approval_status ?? 'submitted'),
+        r.document_type === 'estimate' ? 'NON-DEDUCTIBLE ESTIMATE' : '',
       ];
     });
 
@@ -237,23 +252,34 @@ export default function Export({ receipts }: ExportProps) {
       zip.file(
         'README.txt',
         [
-          'Telos Labs CRA Audit Package',
+          '9 Star Labs — CRA Audit Package',
+          '================================================',
           '',
-          'Compliance notes:',
-          '- This package is prepared for CRA recordkeeping and audit support.',
-          '- Receipts.csv contains the transaction register with GST/PST, payment context, and metadata.',
-          '- LOGBOOK.csv records filename, date, vendor, total, SHA-256 hash, and approval status.',
-          '- The images/ folder contains source receipt images for the selected period.',
-          '- SHA-256 hashes help verify document integrity under IC05-1R1-style controls.',
+          'This package is prepared for CRA recordkeeping and audit support under IC05-1R1.',
+          '',
+          'Contents:',
+          '- receipts.csv: Full transaction register with GST/PST, exchange rates, document types,',
+          '  payment context, reimbursement and approval status, line items, and integrity hashes.',
+          '- LOGBOOK.csv: Chain-of-custody log mapping filenames to SHA-256 hashes, blur scores,',
+          '  document types, and operators. ESTIMATE rows are flagged NON-DEDUCTIBLE.',
+          '- images/: Source receipt images for the selected period.',
           '',
           'Chain of Custody:',
           '- Each receipt image filename maps to a SHA-256 hash in LOGBOOK.csv.',
-          '- To verify integrity: recompute the SHA-256 of each image file and compare with the logbook.',
+          '- Hashes are computed from the raw binary of the image at the moment of capture.',
+          '- To verify integrity: recompute the SHA-256 of each image and compare to LOGBOOK.',
           '',
-          'Retention policy:',
-          '- Keep original records for at least 6 years.',
+          'Non-Deductible Items:',
+          '- Rows with Document Type = \'estimate\' are flagged as NON-DEDUCTIBLE ESTIMATE.',
+          '- Do not submit estimates as final expense claims to CRA.',
+          '',
+          'Retention Policy:',
+          '- Retain original records for a minimum of 6 years (Income Tax Act, s. 230).',
           '- Do not delete source files while an audit hold is active.',
-          '- Preserve exported packages together with the original records.',
+          '- Keep exported packages alongside original source records.',
+          '',
+          'Generated by 9 Star Labs — CRA-Ready Receipt Intelligence',
+          'Contact: legal@9starlabs.ca',
         ].join('\n')
       );
 
@@ -281,7 +307,7 @@ export default function Export({ receipts }: ExportProps) {
 
       const a = document.createElement('a');
       a.href = url;
-      a.download = `receipt-pro-cra-audit-package-${formatDateInput(new Date())}.zip`;
+      a.download = `9starlabs-cra-audit-package-${formatDateInput(new Date())}.zip`;
       a.click();
 
       URL.revokeObjectURL(url);
@@ -295,7 +321,7 @@ export default function Export({ receipts }: ExportProps) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-champagne">Export center</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Exports</h2>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">CRA Export — 9 Star Labs</h2>
         </div>
 
         <div className="rounded-2xl border border-glass-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary shadow-sm">

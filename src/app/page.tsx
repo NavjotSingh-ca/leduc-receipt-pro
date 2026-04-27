@@ -35,14 +35,18 @@ import Scanner from '@/components/Scanner';
 import AuditTrail from '@/components/AuditTrail';
 import BankReconciliation from '@/components/BankReconciliation';
 import CommandPalette from '@/components/CommandPalette';
+import ApprovalsQueue from '@/components/ApprovalsQueue';
+import ReimbursementsPanel from '@/components/ReimbursementsPanel';
+import InviteModal from '@/components/InviteModal';
+import ProjectManager from '@/components/ProjectManager';
 import { AuroraBackground } from '@/components/aceternity/aurora-background';
 import { Marquee } from '@/components/magicui/marquee';
 import { supabase } from '@/lib/supabase';
 import type { ReceiptRow, UserRole } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
-import { getReceipts, getBusinessUnits, getAuditLogs } from '@/lib/services/receipts';
+import { getReceipts, getBusinessUnits, getAuditLogs, redeemAccessCode } from '@/lib/services/receipts';
 import { getUserRole } from '@/lib/services/roles';
-type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit' | 'reconcile' | 'more';
+type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit' | 'reconcile' | 'approvals' | 'payables' | 'projects' | 'more';
 
 type ToastState = {
   type: 'success' | 'error' | 'info';
@@ -83,7 +87,7 @@ function FullPageLoader() {
           <ReceiptText className="h-8 w-8 text-champagne" />
         </div>
         <Loader2 className="h-6 w-6 animate-spin text-champagne" />
-        <p className="text-sm font-medium text-text-secondary">Loading Telos Labs…</p>
+        <p className="text-sm font-medium text-text-secondary">Loading 9 Star Labs…</p>
       </div>
     </div>
   );
@@ -95,6 +99,7 @@ function AuthScreen() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
@@ -121,9 +126,19 @@ function AuthScreen() {
         if (error) throw error;
         showToast('success', 'Signed in successfully.');
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        showToast('success', 'Account created. Please check your email to confirm.');
+        // Redeem invite code if provided
+        if (inviteCode.trim() && data.user) {
+          const result = await redeemAccessCode(inviteCode.trim(), data.user.id);
+          if (result.success) {
+            showToast('success', `Account created. Role assigned: ${result.role}. Check email to confirm.`);
+          } else {
+            showToast('info', `Account created but invite code invalid: ${result.error ?? 'expired'}. Check email.`);
+          }
+        } else {
+          showToast('success', 'Account created. Please check your email to confirm.');
+        }
       }
     } catch (error: unknown) {
       showToast('error', error instanceof Error ? error.message : 'Authentication failed.');
@@ -198,7 +213,7 @@ function AuthScreen() {
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-champagne/15 champagne-glow">
                 <ReceiptText className="h-7 w-7 text-champagne" />
               </div>
-              <h1 className="mt-8 text-5xl font-bold tracking-tight text-white">Telos Labs <br/> <span className="text-champagne">Elite Edition</span></h1>
+            <h1 className="mt-8 text-5xl font-bold tracking-tight text-white">9 Star Labs <br/> <span className="text-champagne">Elite Edition</span></h1>
               <p className="mt-4 max-w-md text-sm leading-7 text-text-secondary">
                 The CRA-compliant receipt intelligence suite. SHA-256 integrity, semantic search, and enterprise-grade audit controls.
               </p>
@@ -248,6 +263,7 @@ function AuthScreen() {
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full rounded-2xl border border-glass-border bg-black/40 px-4 py-3 text-sm text-white outline-none backdrop-blur-md transition placeholder:text-white/20 focus:border-champagne/40 focus:ring-1 focus:ring-champagne/15"
                     placeholder="you@company.ca"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
                   />
                 </div>
 
@@ -266,26 +282,47 @@ function AuthScreen() {
                 </div>
 
                 {mode === 'signup' && (
-                  <button
-                    type="button"
-                    onClick={() => setAccepted((v) => !v)}
-                    className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
-                      accepted
-                        ? 'border-champagne/40 bg-champagne/[0.08]'
-                        : 'border-white/10 bg-black/40 hover:border-white/20'
-                    }`}
-                  >
-                    <div
-                      className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border transition-colors ${
-                        accepted ? 'border-champagne bg-champagne text-black' : 'border-white/30 bg-black/50'
+                  <>
+                    {/* Invite Code Field */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-champagne-dim">
+                        Invite Code <span className="text-white/30 normal-case font-normal">(optional — from your Owner)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={inviteCode}
+                        onChange={(e) => setInviteCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="w-full rounded-2xl border border-glass-border bg-black/40 px-4 py-3 text-sm text-white outline-none backdrop-blur-md transition placeholder:text-white/20 focus:border-champagne/40 focus:ring-1 focus:ring-champagne/15 font-mono tracking-[0.3em] text-center"
+                        placeholder="000000"
+                        maxLength={6}
+                      />
+                      <p className="mt-1 text-[11px] text-white/30">
+                        Enter the 6-digit code if you were invited by a workspace owner.
+                      </p>
+                    </div>
+
+                    {/* Accept Terms */}
+                    <button
+                      type="button"
+                      onClick={() => setAccepted((v) => !v)}
+                      className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
+                        accepted
+                          ? 'border-champagne/40 bg-champagne/[0.08]'
+                          : 'border-white/10 bg-black/40 hover:border-white/20'
                       }`}
                     >
-                      {accepted && <CheckCircle2 className="h-3.5 w-3.5" />}
-                    </div>
-                    <p className="text-xs leading-5 text-white/60">
-                      I accept responsibility for reviewing exported tax and accounting data.
-                    </p>
-                  </button>
+                      <div
+                        className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border transition-colors ${
+                          accepted ? 'border-champagne bg-champagne text-black' : 'border-white/30 bg-black/50'
+                        }`}
+                      >
+                        {accepted && <CheckCircle2 className="h-3.5 w-3.5" />}
+                      </div>
+                      <p className="text-xs leading-5 text-white/60">
+                        I accept responsibility for reviewing exported tax and accounting data.
+                      </p>
+                    </button>
+                  </>
                 )}
 
                 <div className="grid gap-3 pt-2">
@@ -399,18 +436,18 @@ function AppContent() {
 
   const setTabWithUrl = useCallback((tab: Tab) => {
     setActiveTab(tab);
-    // Use pushState to ensure physical back button support
     const url = new URL(window.location.href);
     url.searchParams.set('tab', tab);
-    window.history.pushState({}, '', url);
+    window.history.pushState({ tab }, '', url);
   }, []);
 
-  // Listen for back button
+  // Listen for back button / popstate sync
   useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get('tab') as Tab | null;
-      if (tab) setActiveTab(tab);
+    const handlePopState = (event: PopStateEvent) => {
+      const tabFromState = event.state?.tab as Tab | null;
+      const tabFromUrl = new URLSearchParams(window.location.search).get('tab') as Tab | null;
+      const tabToSet = tabFromState || tabFromUrl || 'dashboard';
+      setActiveTab(tabToSet);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -424,10 +461,12 @@ function AppContent() {
     window.setTimeout(() => setToast(null), 3500);
   }, []);
 
-  /* ─── Role-aware tab enforcement ─── */
+  /* ─── Role-aware tab enforcement (DOM removal for Employee) ─── */
   useEffect(() => {
     if (role === 'Employee') {
-      if (['dashboard', 'export', 'audit', 'reconcile'].includes(activeTab)) {
+      // Physically force to allowed tabs only
+      const allowedEmployeeTabs: Tab[] = ['scan', 'receipts', 'more'];
+      if (!allowedEmployeeTabs.includes(activeTab)) {
         setTabWithUrl('scan');
       }
     }
@@ -464,7 +503,7 @@ function AppContent() {
   });
 
   // Parallel Prefetching to kill the 9-second waterfall
-  useQuery({
+  const { data: businessUnits = [] } = useQuery({
     queryKey: ['business_units'],
     queryFn: getBusinessUnits,
     enabled: !!userId,
@@ -496,8 +535,13 @@ function AppContent() {
     if (action === 'toggle-role') setRoleOpen(true);
   };
 
+  const [showInviteModal, setShowInviteModal] = useState(false);
+
   if (authLoading) return <FullPageLoader />;
   if (!user) return <AuthScreen />;
+
+  // Only Owner/Accountant see these tabs
+  const isPrivileged = role !== 'Employee';
 
   const navItems: Array<{
     id: Tab;
@@ -505,10 +549,10 @@ function AppContent() {
     icon: React.ReactNode;
     primary?: boolean;
   }> = [
-    { id: 'dashboard', label: 'Dash', icon: <LayoutDashboard className="h-5 w-5" /> },
+    ...(isPrivileged ? [{ id: 'dashboard' as Tab, label: 'Dash', icon: <LayoutDashboard className="h-5 w-5" /> }] : []),
     { id: 'receipts', label: 'Records', icon: <ReceiptText className="h-5 w-5" /> },
     { id: 'scan', label: 'Scan', icon: <Camera className="h-6 w-6" />, primary: true },
-    { id: 'reconcile', label: 'Bank', icon: <TrendingUp className="h-5 w-5" /> },
+    ...(isPrivileged ? [{ id: 'reconcile' as Tab, label: 'Bank', icon: <TrendingUp className="h-5 w-5" /> }] : []),
     { id: 'more', label: 'More', icon: <MoreHorizontal className="h-5 w-5" /> },
   ];
 
@@ -543,12 +587,12 @@ function AppContent() {
       {/* Header */}
       <header className="fixed inset-x-0 top-0 z-50 liquid-glass">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-champagne/15 champagne-glow">
               <ReceiptText className="h-5 w-5 text-champagne" />
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-tight text-text-primary">Telos Labs</h1>
+              <h1 className="text-base font-bold tracking-tight text-text-primary">9 Star Labs</h1>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-champagne">
                 CRA-ready records
               </p>
@@ -706,6 +750,18 @@ function AppContent() {
             >
               <BankReconciliation receipts={receipts} />
             </motion.div>
+          ) : activeTab === 'approvals' ? (
+            <motion.div key="approvals" variants={tabVariants} initial="initial" animate="animate" exit="exit" transition={tabTransition}>
+              <ApprovalsQueue role={role} />
+            </motion.div>
+          ) : activeTab === 'payables' ? (
+            <motion.div key="payables" variants={tabVariants} initial="initial" animate="animate" exit="exit" transition={tabTransition}>
+              <ReimbursementsPanel role={role} />
+            </motion.div>
+          ) : activeTab === 'projects' ? (
+            <motion.div key="projects" variants={tabVariants} initial="initial" animate="animate" exit="exit" transition={tabTransition}>
+              <ProjectManager />
+            </motion.div>
           ) : (
             <motion.div 
               key="audit"
@@ -739,7 +795,7 @@ function AppContent() {
                 <X className="h-5 w-5" />
               </button>
 
-              <h3 className="mb-4 px-2 text-lg font-bold text-white">More Options</h3>
+              <h3 className="mb-4 px-2 text-lg font-bold text-white">More Options — 9 Star Labs</h3>
               
               <div className="grid gap-2">
                 {role !== 'Employee' && (
@@ -752,6 +808,24 @@ function AppContent() {
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><Download className="h-5 w-5" /></div>
                       <div className="text-left"><p className="text-sm font-bold text-white">CRA Export</p><p className="text-xs text-white/50">Generate compliance ZIPs</p></div>
                     </button>
+                    <button onClick={() => setActiveTab('approvals')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400"><CheckCircle2 className="h-5 w-5" /></div>
+                      <div className="text-left"><p className="text-sm font-bold text-white">Approvals Queue</p><p className="text-xs text-white/50">Review employee submissions</p></div>
+                    </button>
+                    <button onClick={() => setActiveTab('payables')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400"><TrendingUp className="h-5 w-5" /></div>
+                      <div className="text-left"><p className="text-sm font-bold text-white">Reimbursements</p><p className="text-xs text-white/50">Employee payables tracker</p></div>
+                    </button>
+                    <button onClick={() => setActiveTab('projects')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><Layers className="h-5 w-5" /></div>
+                      <div className="text-left"><p className="text-sm font-bold text-white">Projects & Job Codes</p><p className="text-xs text-white/50">Manage construction sites</p></div>
+                    </button>
+                    {role === 'Owner' && (
+                      <button onClick={() => { setActiveTab('dashboard'); setShowInviteModal(true); }} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><UserCircle2 className="h-5 w-5" /></div>
+                        <div className="text-left"><p className="text-sm font-bold text-white">Invite Team Member</p><p className="text-xs text-white/50">Generate 6-digit access code</p></div>
+                      </button>
+                    )}
                   </>
                 )}
                 
@@ -763,7 +837,7 @@ function AppContent() {
                   </Link>
                   <Link href="/privacy" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-white/5">
                     <ShieldCheck className="h-4 w-4 text-white/50" />
-                    <span className="text-sm font-semibold text-white/80">Privacy Policy</span>
+                    <span className="text-sm font-semibold text-white/80">Privacy Policy (PIPEDA)</span>
                   </Link>
                 </div>
               </div>
@@ -833,6 +907,14 @@ function AppContent() {
       )}
 
       <CommandPalette onAction={handleCommand} />
+
+      {/* Invite Modal */}
+      {showInviteModal && (
+        <InviteModal
+          onClose={() => setShowInviteModal(false)}
+          businessUnits={businessUnits}
+        />
+      )}
     </div>
   );
 }

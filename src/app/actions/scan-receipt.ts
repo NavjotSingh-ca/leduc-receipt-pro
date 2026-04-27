@@ -94,9 +94,18 @@ const PROVINCE_TAX: Record<string, { gst: number; pst: number }> = {
   YT: { gst: 0.05, pst: 0.0 },
 };
 
-function buildPrompt(): string {
+function buildPrompt(captureSource: string = 'camera'): string {
+  let contextPrompt = '';
+  if (captureSource === 'email_screenshot') {
+    contextPrompt = `
+CONTEXT: This is a DIGITAL EMAIL SCREENSHOT.
+- Prioritize extracting digital invoice numbers, order IDs, and vendor contact emails.
+- Extract the vendor name exactly as it appears in the header or "From" field.
+- Digital receipts often have clearer metadata than paper ones.`;
+  }
+
   return `You are an elite Canadian receipt API with built-in fraud and anomaly detection. 
-Analyze this receipt image and return a single JSON object matching this exact schema:
+Analyze this document image and return a single JSON object matching this exact schema:
 {
   "vendor_name": "string",
   "vendor_address": "full address including city, province, postal code",
@@ -126,6 +135,8 @@ Analyze this receipt image and return a single JSON object matching this exact s
     }
   ]
 }
+
+${contextPrompt}
 
 Rules:
 - Extract EVERY line item visible.
@@ -204,7 +215,7 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
   }
 }
 
-export async function scanReceipt(base64Image: string): Promise<ScanReceiptResult> {
+export async function scanReceipt(base64Image: string, captureSource: string = 'camera'): Promise<ScanReceiptResult> {
   if (!process.env.GOOGLE_AI_KEY) return { success: false, error: 'AI service not configured.' };
   
   let imagePayload = prepareImage(base64Image);
@@ -217,7 +228,7 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
     });
 
     const result = await model.generateContent([
-      buildPrompt(),
+      buildPrompt(captureSource),
       { inlineData: { data: imagePayload.data, mimeType: imagePayload.mimeType } },
     ]);
 

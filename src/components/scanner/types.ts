@@ -1,6 +1,6 @@
-export type CaptureSource = 'camera' | 'upload' | 'email' | 'bulk-import' | 'accountant-import';
+export type CaptureSource = 'camera' | 'upload' | 'email' | 'email_screenshot' | 'bulk-import' | 'accountant-import';
 export type UsageType = 'business' | 'personal' | 'mixed';
-export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'unknown';
+export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'estimate' | 'unknown';
 export type SourceFileType = 'image' | 'pdf' | 'heic' | 'png' | 'jpg' | 'jpeg' | '';
 export type PaidBy = 'company_card' | 'employee_cash' | '';
 export type ReimbursementStatus = 'pending' | 'approved' | 'rejected' | '';
@@ -200,7 +200,7 @@ export const PAYMENT_METHODS = [
 
 export const USAGE_TYPES = ['business', 'personal', 'mixed'] as const;
 
-export const DOCUMENT_TYPES = ['receipt', 'invoice', 'statement', 'unknown'] as const;
+export const DOCUMENT_TYPES = ['receipt', 'invoice', 'statement', 'estimate', 'unknown'] as const;
 
 export const DEFAULT_CURRENCY = 'CAD';
 
