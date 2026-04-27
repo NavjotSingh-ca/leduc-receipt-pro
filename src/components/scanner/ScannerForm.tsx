@@ -145,7 +145,7 @@ export default function ScannerForm({
     }
   }, [formData.subtotal, formData.tax_amount, formData.pst_amount, formData.total_amount]);
 
-  const canSave = hasAnalyzed && isConfirmed && isMathValid && !saving;
+  const canSave = hasAnalyzed && isConfirmed && !saving;
 
   return (
     <form onSubmit={handleSubmit(performSave)} className="space-y-5 fade-in">
@@ -602,6 +602,19 @@ export default function ScannerForm({
 
           {hasAnalyzed && (
             <div className="pt-1">
+              {Object.keys(errors).length > 0 && (
+                <div className="mb-3 rounded-xl bg-red-500/10 p-3 border border-red-500/20 text-[10px] text-red-400 font-bold uppercase tracking-wider">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span>Correction Required</span>
+                  </div>
+                  <ul className="list-disc list-inside opacity-80">
+                    {Object.entries(errors).map(([key, err]) => (
+                      <li key={key}>{key.replace('_', ' ')}: {err?.message as string}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <button 
                 type="submit" 
                 disabled={!canSave} 
