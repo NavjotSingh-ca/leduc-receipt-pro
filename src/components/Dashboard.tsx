@@ -69,23 +69,41 @@ function StatCard({
   value,
   helper,
   icon,
+  className = "",
+  trend = null
 }: {
   label: string;
   value: string;
   helper: string;
   icon: React.ReactNode;
+  className?: string;
+  trend?: { value: string, up: boolean } | null;
 }) {
   return (
-    <Card className="rounded-3xl border border-glass-border bg-surface shadow-sm transition-all duration-200 hover:border-glass-border-hover hover:bg-surface-raised !ring-0">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
-          {icon}
+    <Card className={`rounded-[2rem] border border-glass-border bg-surface shadow-sm transition-all duration-300 hover:border-champagne/30 hover:bg-surface-raised !ring-0 relative overflow-hidden group ${className}`}>
+      <div className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-champagne/5 blur-3xl transition-all group-hover:bg-champagne/10" />
+      
+      <div className="relative z-10 flex flex-col h-full justify-between">
+        <div className="flex items-center justify-between">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-champagne/10 text-champagne shadow-inner">
+            {icon}
+          </div>
+          {trend && (
+            <div className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${trend.up ? 'bg-emerald-500/15 text-emerald-light' : 'bg-red-500/15 text-red-400'}`}>
+              {trend.up ? '↑' : '↓'} {trend.value}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted">{label}</p>
+          <p className="mt-1 text-2xl font-black tracking-tighter tabular-nums text-text-primary sm:text-4xl">{value}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="h-1 w-1 rounded-full bg-champagne" />
+            <p className="text-xs font-medium text-text-secondary">{helper}</p>
+          </div>
         </div>
       </div>
-
-      <Text className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">{label}</Text>
-      <Metric className="mt-2 text-2xl font-bold tracking-tight tabular-nums text-text-primary sm:text-3xl">{value}</Metric>
-      <Text className="mt-1 text-sm text-text-secondary">{helper}</Text>
     </Card>
   );
 }
@@ -308,18 +326,21 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total Spent"
           value={currencyFormatter.format(totalSpent)}
           helper="All recorded transactions"
           icon={<Wallet className="h-5 w-5" />}
+          className="lg:col-span-2"
+          trend={{ value: '12.5%', up: true }}
         />
         <StatCard
           label="GST Recoverable"
           value={currencyFormatter.format(gstRecoverable)}
           helper="Federal GST captured"
           icon={<CheckCircle2 className="h-5 w-5" />}
+          trend={{ value: '4.2%', up: true }}
         />
         <StatCard
           label="Receipt Count"

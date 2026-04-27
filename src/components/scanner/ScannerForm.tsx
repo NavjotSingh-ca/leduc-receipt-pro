@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2, Info, Loader2 } from 'lucide-react';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
 import { CATEGORIES, PAYMENT_METHODS, USAGE_TYPES } from './types';
@@ -554,22 +554,37 @@ export default function ScannerForm({
 
       {/* Confirmation & Save */}
       {/* Confirmation & Save (Sticky Bottom Bar) */}
-      <div className="sticky bottom-0 z-40 -mx-5 -mb-5 border-t border-glass-border bg-obsidian/95 p-5 backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.6)] sm:rounded-b-3xl">
-        <div className="space-y-4">
-          <button type="button" onClick={() => setIsConfirmed((v) => !v)} className={['flex w-full items-start gap-4 rounded-3xl border p-5 text-left transition', isConfirmed ? 'border-champagne/40 bg-champagne/[0.08]' : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'].join(' ')}>
+      <div className="sticky bottom-0 z-40 -mx-5 -mb-5 border-t border-glass-border bg-obsidian/95 p-5 pb-safe-bottom backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.6)] sm:rounded-b-3xl">
+        <div className="mx-auto max-w-lg space-y-4">
+          <button 
+            type="button" 
+            onClick={() => setIsConfirmed((v) => !v)} 
+            className={['flex w-full items-start gap-4 rounded-3xl border p-4 text-left transition', isConfirmed ? 'border-champagne/40 bg-champagne/[0.08]' : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'].join(' ')}
+          >
             <div className={['mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition', isConfirmed ? 'border-champagne bg-champagne text-obsidian' : 'border-text-muted bg-surface'].join(' ')}>
               {isConfirmed && <CheckCircle2 className="h-3.5 w-3.5" />}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-text-primary">I confirm that these figures are accurate.</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">Required before saving.</p>
+              <p className="mt-1 text-[10px] uppercase tracking-wider text-text-muted">Required by CRA Compliance</p>
             </div>
           </button>
 
           {hasAnalyzed && (
-            <div className="space-y-3 pt-2">
-              <button type="submit" disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
-                {saving ? 'Saving secure record…' : 'Save verified receipt'}
+            <div className="pt-1">
+              <button 
+                type="submit" 
+                disabled={saving || !isConfirmed} 
+                className="inline-flex h-14 w-full items-center justify-center rounded-[2rem] bg-emerald-success px-6 text-base font-black text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-40 shadow-xl shadow-emerald-success/20"
+              >
+                {saving ? (
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Saving to Vault…</span>
+                  </div>
+                ) : (
+                  'Save Verified Record'
+                )}
               </button>
             </div>
           )}

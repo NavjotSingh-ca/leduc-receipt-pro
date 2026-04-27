@@ -140,6 +140,17 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
+/* ─── Glowing Border Animation ─── */
+@keyframes borderGlow {
+  0%, 100% { border-color: rgba(190, 169, 142, 0.2); box-shadow: 0 0 5px rgba(190, 169, 142, 0.1); }
+  50% { border-color: rgba(190, 169, 142, 0.8); box-shadow: 0 0 15px rgba(190, 169, 142, 0.3); }
+}
+
+.glowing-border {
+  animation: borderGlow 2s ease-in-out infinite;
+  border-width: 1.5px;
+}
+
 /* ─── Self-Healing AI Glow (Suite II) ─── */
 
 @keyframes selfHealingGlow {

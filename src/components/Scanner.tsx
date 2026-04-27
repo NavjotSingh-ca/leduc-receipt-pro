@@ -33,6 +33,7 @@ const STORAGE_BUCKET = 'receipt-images';
 export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const formContainerRef = useRef<HTMLDivElement | null>(null);
   const queryClient = useQueryClient();
 
   const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
@@ -411,6 +412,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setHasAnalyzed(true);
       showNotice('success', 'Receipt processed successfully. Please review the details below.');
       
+      // Auto-scroll to form top
+      setTimeout(() => {
+        formContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+      
       if (isBatchProcessing) {
         await performSave(true);
         setTimeout(processNextBatchItem, 1000);
@@ -667,15 +673,15 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                       disabled={!canProcess}
                       whileTap={{ scale: 0.95 }}
                       transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3.5 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-champagne px-5 py-3.5 text-sm font-semibold text-obsidian transition hover:bg-champagne-dim disabled:cursor-not-allowed disabled:opacity-60 ${!hasAnalyzed ? 'glowing-border' : ''}`}
                     >
                       {processingAI ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                      {processingAI ? 'Processing with AI…' : 'Process with AI'}
+                      {processingAI ? 'Processing with AI…' : 'Analyze with AI'}
                     </motion.button>
                   </div>
                 </div>
 
-                <div className="min-w-0">
+                <div ref={formContainerRef} className="min-w-0">
                   <ScannerForm
                     formData={formData}
                     setFormData={setFormData}

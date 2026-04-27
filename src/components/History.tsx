@@ -259,7 +259,7 @@ export default function History({
                   layoutId={`receipt-card-${receipt.id}`}
                   type="button"
                   onClick={() => setSelectedReceipt(receipt)}
-                  className={`w-full rounded-2xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-glass-border-hover hover:bg-surface-raised ${isOptimistic ? 'optimistic-pulse' : ''}`}
+                  className={`w-full rounded-2xl border border-glass-border bg-surface p-4 text-left shadow-sm transition hover:border-champagne/40 hover:bg-surface-raised ${isOptimistic ? 'optimistic-pulse' : 'glowing-border'}`}
                 >
                   <div className="flex items-start gap-3">
                     <div
@@ -446,7 +446,7 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-xl sm:items-center"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-3xl sm:items-center"
       onClick={onClose}
     >
       <motion.div

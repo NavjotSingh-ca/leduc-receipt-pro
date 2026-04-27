@@ -36,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="font-sans antialiased">
+      <body className="font-sans antialiased bg-obsidian selection:bg-champagne/30">
         <SmoothScroll>
           <Providers>
             {children}

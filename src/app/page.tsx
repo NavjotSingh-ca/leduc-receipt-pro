@@ -399,8 +399,22 @@ function AppContent() {
 
   const setTabWithUrl = useCallback((tab: Tab) => {
     setActiveTab(tab);
-    router.push(`?tab=${tab}`, { scroll: false });
-  }, [router]);
+    // Use pushState to ensure physical back button support
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.pushState({}, '', url);
+  }, []);
+
+  // Listen for back button
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab') as Tab | null;
+      if (tab) setActiveTab(tab);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [roleOpen, setRoleOpen] = useState(false);
   const [role, setRole] = useState<UserRole>('Owner');
   const [toast, setToast] = useState<ToastState | null>(null);
