@@ -107,7 +107,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
       if (!integrityHash) {
         // Fallback hash if no image
-        integrityHash = await generateIntegrityHash(new TextEncoder().encode(JSON.stringify(localFormData)));
+        integrityHash = await generateIntegrityHash(new TextEncoder().encode(JSON.stringify(localFormData)).buffer);
       }
 
       const aiEmbedding = await generateEmbedding(JSON.stringify(localFormData));
