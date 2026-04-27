@@ -89,7 +89,10 @@ export const getReceipts = async (role: UserRole, userId?: string): Promise<Rece
   }
 
   const { data, error } = await queryReq;
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching receipts:', error);
+    throw error;
+  }
 
   return (data || []).map((row) => receiptSchema.parse(row) as ReceiptRow);
 };
@@ -102,7 +105,10 @@ export const getReceiptsPendingApproval = async (): Promise<ReceiptRow[]> => {
     .eq('approval_status', 'submitted')
     .order('created_at', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching pending receipts:', error);
+    throw error;
+  }
   return (data || []).map((row) => receiptSchema.parse(row) as ReceiptRow);
 };
 
@@ -121,7 +127,10 @@ export const getReimbursementsPending = async (userId: string): Promise<ReceiptR
 
 export const getBusinessUnits = async () => {
   const { data, error } = await supabase.from('businessunits').select('id, name');
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching business units:', error);
+    throw error;
+  }
   return data || [];
 };
 
@@ -143,7 +152,10 @@ export const getAuditLogs = async (limit = 50) => {
     .in('user_id', allowedUserIds)
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching audit logs:', error);
+    throw error;
+  }
   return data || [];
 };
 

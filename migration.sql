@@ -227,11 +227,20 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'project_id') THEN
     ALTER TABLE receipt_history ADD COLUMN project_id uuid;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'category') THEN
+    ALTER TABLE receipt_history ADD COLUMN category text;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'exchange_rate') THEN
     ALTER TABLE receipt_history ADD COLUMN exchange_rate numeric;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'cad_equivalent') THEN
     ALTER TABLE receipt_history ADD COLUMN cad_equivalent numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'duplicate_hash') THEN
+    ALTER TABLE receipt_history ADD COLUMN duplicate_hash text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipt_history' AND column_name = 'integrity_hash') THEN
+    ALTER TABLE receipt_history ADD COLUMN integrity_hash text;
   END IF;
 END $$;
 
@@ -304,3 +313,6 @@ BEGIN
   RETURN json_build_object('success', true, 'role', v_role);
 END;
 $$;
+
+-- ─── 9. Refresh API Cache ───
+NOTIFY pgrst, 'reload schema';
