@@ -24,6 +24,33 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'duplicate_hash') THEN
     ALTER TABLE receipts ADD COLUMN duplicate_hash text DEFAULT NULL;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'duplicate_warning') THEN
+    ALTER TABLE receipts ADD COLUMN duplicate_warning boolean DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'math_mismatch_warning') THEN
+    ALTER TABLE receipts ADD COLUMN math_mismatch_warning boolean DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'fraud_suspicion') THEN
+    ALTER TABLE receipts ADD COLUMN fraud_suspicion boolean DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'fraud_reason') THEN
+    ALTER TABLE receipts ADD COLUMN fraud_reason text DEFAULT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'thermal_warning') THEN
+    ALTER TABLE receipts ADD COLUMN thermal_warning boolean DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'exchange_rate') THEN
+    ALTER TABLE receipts ADD COLUMN exchange_rate numeric DEFAULT 1.0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'cad_equivalent') THEN
+    ALTER TABLE receipts ADD COLUMN cad_equivalent numeric DEFAULT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'line_items') THEN
+    ALTER TABLE receipts ADD COLUMN line_items jsonb DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'integrity_hash') THEN
+    ALTER TABLE receipts ADD COLUMN integrity_hash text DEFAULT NULL;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'receipts' AND column_name = 'semantic_embedding') THEN
     ALTER TABLE receipts ADD COLUMN semantic_embedding vector(768);
   END IF;

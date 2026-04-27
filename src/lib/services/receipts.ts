@@ -386,6 +386,8 @@ export const saveReceipt = async (
 
   const finalPayload = {
     ...payload,
+    business_unit_id: payload.business_unit_id === '' ? null : payload.business_unit_id,
+    project_id: payload.project_id === '' ? null : payload.project_id,
     integrity_hash: integrityHash,
     math_mismatch_warning: isMismatch,
     cad_equivalent: cadEquivalent,
