@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2, Info } from 'lucide-react';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
 import { CATEGORIES, PAYMENT_METHODS, USAGE_TYPES } from './types';
@@ -135,8 +135,21 @@ export default function ScannerForm({
       </div>
 
       {/* Warnings & Live Policy Guardrails */}
-      {(missingBN || mathMismatch || thermalWarning || lowReadiness || fraudSuspicion || isHighValue || needsVehicleId || isOutOfProvince) && (
-        <div className="space-y-3">
+      <div className="space-y-3">
+        {formData.document_type?.toLowerCase() === 'estimate' && (
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] px-4 py-3">
+            <div className="flex items-start gap-3">
+              <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-400" />
+              <div>
+                <p className="text-sm font-bold text-blue-300">Notice: This is an Estimate</p>
+                <p className="mt-1 text-xs leading-relaxed text-blue-400/80">This is not a tax-deductible receipt yet. Ensure you receive a final invoice or receipt upon payment.</p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {(missingBN || mathMismatch || thermalWarning || lowReadiness || fraudSuspicion || isHighValue || needsVehicleId || isOutOfProvince) && (
+          <>
           {/* Policy Flags */}
           {isHighValue && (
             <div className="rounded-2xl border border-[#dfcaaa]/40 bg-[#dfcaaa]/10 px-4 py-3 shadow-[0_0_15px_rgba(190,169,142,0.15)]">
@@ -238,8 +251,9 @@ export default function ScannerForm({
               </div>
             </div>
           )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {/* Card 1: Store Info */}
       <div className="rounded-3xl border border-glass-border bg-surface shadow-sm">
@@ -258,7 +272,15 @@ export default function ScannerForm({
               <input type="text" {...register('vendor_address')} className={inputCls} placeholder="123 Main St, Calgary, AB" />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Date</label>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Date
+                <span className="group relative flex items-center">
+                  <Info className="h-3 w-3 text-champagne cursor-help" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-max max-w-[200px] rounded-lg bg-surface-raised px-2 py-1 text-[10px] text-text-primary shadow-xl group-hover:block border border-glass-border">
+                    CRA Required: Needed for ITCs.
+                  </span>
+                </span>
+              </label>
               <input type="date" {...register('transaction_date')} className={errors.transaction_date ? errorInputCls : inputCls} />
               {errors.transaction_date && <p className="mt-1 text-xs text-red-500">{errors.transaction_date.message}</p>}
             </div>
@@ -364,7 +386,15 @@ export default function ScannerForm({
               {errors.subtotal && <p className="mt-1 text-xs text-red-500">{errors.subtotal.message}</p>}
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Total</label>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Total
+                <span className="group relative flex items-center">
+                  <Info className="h-3 w-3 text-champagne cursor-help" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-max max-w-[200px] rounded-lg bg-surface-raised px-2 py-1 text-[10px] text-text-primary shadow-xl group-hover:block border border-glass-border">
+                    CRA Required: Needed for ITCs.
+                  </span>
+                </span>
+              </label>
               <input type="number" step="0.01" min="0" {...register('total_amount', { valueAsNumber: true })} className={errors.total_amount ? errorInputCls : (glowActive ? inputCls + ' self-healing-glow' : inputCls)} />
               {errors.total_amount && <p className="mt-1 text-xs text-red-500">{errors.total_amount.message}</p>}
             </div>
@@ -401,7 +431,15 @@ export default function ScannerForm({
         <div className="space-y-4 p-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">GST / Vendor Tax Number</label>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                GST / Vendor Tax Number
+                <span className="group relative flex items-center">
+                  <Info className="h-3 w-3 text-champagne cursor-help" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden w-max max-w-[200px] rounded-lg bg-surface-raised px-2 py-1 text-[10px] text-text-primary shadow-xl group-hover:block border border-glass-border z-10">
+                    CRA Required: Needed for ITCs.
+                  </span>
+                </span>
+              </label>
               <input type="text" {...register('business_number')} className={errors.business_number ? errorInputCls : (missingBN ? warningInputCls : inputCls)} placeholder="123456789RT0001" />
               {errors.business_number && <p className="mt-1 text-xs text-red-500">{errors.business_number.message}</p>}
             </div>
@@ -515,28 +553,27 @@ export default function ScannerForm({
       </section>
 
       {/* Confirmation & Save */}
-      <div className="space-y-4">
-        <button type="button" onClick={() => setIsConfirmed((v) => !v)} className={['flex w-full items-start gap-4 rounded-3xl border p-5 text-left transition', isConfirmed ? 'border-champagne/40 bg-champagne/[0.08]' : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'].join(' ')}>
-          <div className={['mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition', isConfirmed ? 'border-champagne bg-champagne text-obsidian' : 'border-text-muted bg-surface'].join(' ')}>
-            {isConfirmed && <CheckCircle2 className="h-3.5 w-3.5" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-text-primary">I confirm that these figures are accurate and match the physical receipt.</p>
-            <p className="mt-1 text-xs leading-relaxed text-text-muted">Required before saving. This creates an auditable record.</p>
-          </div>
-        </button>
-
-        {hasAnalyzed && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-text-muted justify-center">
-              <span className="flex h-2 w-2 rounded-full bg-champagne animate-pulse"></span>
-              Google AI Transparency Disclosure: Data extracted via Gemini 2.5. Human review required.
+      {/* Confirmation & Save (Sticky Bottom Bar) */}
+      <div className="sticky bottom-0 z-40 -mx-5 -mb-5 border-t border-glass-border bg-obsidian/95 p-5 backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.6)] sm:rounded-b-3xl">
+        <div className="space-y-4">
+          <button type="button" onClick={() => setIsConfirmed((v) => !v)} className={['flex w-full items-start gap-4 rounded-3xl border p-5 text-left transition', isConfirmed ? 'border-champagne/40 bg-champagne/[0.08]' : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'].join(' ')}>
+            <div className={['mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition', isConfirmed ? 'border-champagne bg-champagne text-obsidian' : 'border-text-muted bg-surface'].join(' ')}>
+              {isConfirmed && <CheckCircle2 className="h-3.5 w-3.5" />}
             </div>
-            <button type="submit" disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
-              {saving ? 'Saving secure record…' : 'Save verified receipt'}
-            </button>
-          </div>
-        )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-text-primary">I confirm that these figures are accurate.</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">Required before saving.</p>
+            </div>
+          </button>
+
+          {hasAnalyzed && (
+            <div className="space-y-3 pt-2">
+              <button type="submit" disabled={saving || !isConfirmed} className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-success px-5 py-4 text-sm font-bold text-white transition hover:bg-emerald-success/80 disabled:cursor-not-allowed disabled:opacity-50">
+                {saving ? 'Saving secure record…' : 'Save verified receipt'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </form>
   );

@@ -115,6 +115,7 @@ Analyze this receipt image and return a single JSON object matching this exact s
   "thermal_warning": false (true if receipt is faded/thermal),
   "fraud_suspicion": false (true if out of policy, weird vendor, impossible math, or AI fake),
   "fraud_reason": "string (explain why if fraud_suspicion is true, else empty)",
+  "document_type": "Receipt | Invoice | Estimate | Statement",
   "line_items": [
     {
       "description": "string",
@@ -250,7 +251,7 @@ export async function scanReceipt(base64Image: string): Promise<ScanReceiptResul
         confidence_score: toNum(parsed.confidence_score) || 85,
         cra_readiness_score: 90, // Simplified, rely on live score
         thermal_warning: Boolean(parsed.thermal_warning),
-        document_type: 'receipt',
+        document_type: (toStr(parsed.document_type).toLowerCase() || 'receipt') as any,
         duplicate_warning: false,
         duplicate_hash: '',
         math_mismatch_warning: Math.abs((subtotal + tax_amount + pst_amount) - total_amount) > 0.05,

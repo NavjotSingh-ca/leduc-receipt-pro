@@ -2,7 +2,7 @@
 
 export type CaptureSource = 'camera' | 'upload' | 'email' | 'bulk-import' | 'accountant-import';
 export type UsageType = 'business' | 'personal' | 'mixed';
-export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'unknown';
+export type DocumentType = 'receipt' | 'invoice' | 'statement' | 'estimate' | 'unknown';
 export type SourceFileType = 'image' | 'pdf' | 'heic' | 'png' | 'jpg' | 'jpeg' | '';
 
 export type UserRole = 'Owner' | 'Employee' | 'Accountant';

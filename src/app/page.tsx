@@ -21,8 +21,11 @@ import {
   TrendingUp,
   UserCircle2,
   Fingerprint,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import Dashboard from '@/components/Dashboard';
@@ -378,12 +381,26 @@ function AuditHUD({ receipts }: { receipts: ReceiptRow[] }) {
 
 /* ─── Main Page ─── */
 
-export default function Page() {
+function AppContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab') as Tab | null;
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>(tabParam || 'dashboard');
   const [activeFilter, setActiveFilter] = useState<string>('all');
+
+  useEffect(() => {
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
+  const setTabWithUrl = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    router.push(`?tab=${tab}`, { scroll: false });
+  }, [router]);
   const [roleOpen, setRoleOpen] = useState(false);
   const [role, setRole] = useState<UserRole>('Owner');
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -397,7 +414,7 @@ export default function Page() {
   useEffect(() => {
     if (role === 'Employee') {
       if (['dashboard', 'export', 'audit', 'reconcile'].includes(activeTab)) {
-        setActiveTab('scan');
+        setTabWithUrl('scan');
       }
     }
   }, [role, activeTab]);
@@ -447,21 +464,21 @@ export default function Page() {
 
   const handleFilterClick = useCallback((filter: string) => {
     setActiveFilter(filter);
-    setActiveTab('receipts');
-  }, []);
+    setTabWithUrl('receipts');
+  }, [setTabWithUrl]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setRoleOpen(false);
-    setActiveTab('dashboard');
+    setTabWithUrl('dashboard');
     setActiveFilter('all');
   };
 
   const handleCommand = (action: string) => {
-    if (action === 'scan') setActiveTab('scan');
-    if (action === 'bulk-upload') setActiveTab('scan'); // Maps to Scanner bulk capabilities
-    if (action === 'missing-bn') { setActiveFilter('missing-bn'); setActiveTab('receipts'); }
-    if (action === 'export-idea') setActiveTab('export'); // Export tab handles IDEA
+    if (action === 'scan') setTabWithUrl('scan');
+    if (action === 'bulk-upload') setTabWithUrl('scan'); // Maps to Scanner bulk capabilities
+    if (action === 'missing-bn') { setActiveFilter('missing-bn'); setTabWithUrl('receipts'); }
+    if (action === 'export-idea') setTabWithUrl('export'); // Export tab handles IDEA
     if (action === 'toggle-role') setRoleOpen(true);
   };
 
@@ -700,6 +717,14 @@ export default function Page() {
               className="fixed inset-x-0 bottom-0 z-[60] flex flex-col rounded-t-[2.5rem] border-t border-glass-border bg-black/60 p-6 pb-32 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] backdrop-blur-3xl sm:mx-auto sm:max-w-md sm:border-x sm:border-white/10"
             >
               <div className="mx-auto mb-6 h-1 w-12 rounded-full bg-white/20" />
+              
+              <button 
+                onClick={() => setActiveTab('dashboard')}
+                className="absolute right-6 top-6 rounded-full bg-white/5 p-2 text-white/50 transition hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
               <h3 className="mb-4 px-2 text-lg font-bold text-white">More Options</h3>
               
               <div className="grid gap-2">
@@ -795,5 +820,13 @@ export default function Page() {
 
       <CommandPalette onAction={handleCommand} />
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<FullPageLoader />}>
+      <AppContent />
+    </Suspense>
   );
 }

@@ -127,34 +127,38 @@ export const updateReceiptApproval = async (
   });
 };
 
-export const updateReceiptNotes = async (
+export const updateReceipt = async (
   receiptId: string,
-  notesValue: string,
+  updatedData: Partial<ReceiptRow>,
   userId: string,
-  receipt: ReceiptRow
+  originalReceipt: ReceiptRow
 ) => {
-  // Archive to receipt_history first
+  // Archive to receipt_history first (Immutable Record Pattern)
   const { error: archiveError } = await supabase
     .from('receipt_history')
     .insert({
-      receipt_id: receipt.id,
-      vendor_name: receipt.vendor_name,
-      transaction_date: receipt.transaction_date,
-      total_amount: receipt.total_amount,
-      category: receipt.category,
-      notes: receipt.notes,
-      duplicate_hash: receipt.duplicate_hash,
-      integrity_hash: receipt.integrity_hash,
+      receipt_id: originalReceipt.id,
+      vendor_name: originalReceipt.vendor_name,
+      transaction_date: originalReceipt.transaction_date,
+      total_amount: originalReceipt.total_amount,
+      category: originalReceipt.category,
+      notes: originalReceipt.notes,
+      duplicate_hash: originalReceipt.duplicate_hash,
+      integrity_hash: originalReceipt.integrity_hash,
       archived_at: new Date().toISOString(),
       archived_by: userId,
     });
 
   if (archiveError) throw new Error(`History archive failed: ${archiveError.message}`);
 
-  // Update notes
+  const updatePayload = {
+    ...updatedData,
+    updated_at: new Date().toISOString()
+  };
+
   const { error: updateError } = await supabase
     .from('receipts')
-    .update({ notes: notesValue, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', receiptId);
 
   if (updateError) throw new Error(updateError.message);
@@ -162,8 +166,17 @@ export const updateReceiptNotes = async (
   await supabase.from('audit_logs').insert({
     user_id: userId,
     action: 'receiptedited',
-    details: `Receipt updated: Notes modified for ${receipt.vendor_name}. Previous version archived.`,
+    details: `Receipt updated: ${Object.keys(updatedData).join(', ')} modified for ${originalReceipt.vendor_name}. Previous version archived.`,
   });
+};
+
+export const updateReceiptNotes = async (
+  receiptId: string,
+  notesValue: string,
+  userId: string,
+  receipt: ReceiptRow
+) => {
+  return updateReceipt(receiptId, { notes: notesValue }, userId, receipt);
 };
 
 export const saveReceipt = async (

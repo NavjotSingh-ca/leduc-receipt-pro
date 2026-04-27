@@ -48,35 +48,61 @@ export default function BankReconciliation({ receipts }: BankReconciliationProps
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
     setError('');
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const lines = text.split('\n').filter(l => l.trim() !== '');
-        // Assume basic CSV: date, description, amount
-        const parsedData: BankRow[] = lines.map((line, idx) => {
-          const cols = line.split(',');
-          // Extremely basic fallback parsing simulation
-          const date = cols[0] || '';
-          const description = cols[1] || 'Unknown';
-          const amount = Math.abs(parseFloat(cols[2] || cols[cols.length - 1] || '0'));
-          return { id: `bank-${idx}`, date, description, amount };
-        }).filter(r => r.amount > 0 && r.date);
 
-        setBankData(parsedData);
-      } catch (err) {
-        setError('Failed to parse bank CSV. Please ensure it has Date, Description, and Amount.');
-      } finally {
-        setLoading(false);
+    try {
+      let text = '';
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          // @ts-expect-error - pdfjs types
+          const strings = content.items.map((item) => item.str);
+          text += strings.join(' ') + '\n';
+        }
+      } else {
+        text = await file.text();
       }
-    };
-    reader.readAsText(file);
+
+      const lines = text.split('\n').filter((l) => l.trim() !== '');
+      if (lines.length === 0) throw new Error('File is empty.');
+
+      const headers = lines[0].toLowerCase().split(',').map((s) => s.trim());
+      const dateIdx = headers.findIndex((h) => h.includes('date'));
+      const descIdx = headers.findIndex((h) => h.includes('description') || h.includes('memo') || h.includes('name'));
+      const amtIdx = headers.findIndex((h) => h.includes('amount') || h.includes('debit'));
+
+      const dataLines = (dateIdx >= 0 && descIdx >= 0) ? lines.slice(1) : lines;
+
+      const parsedData: BankRow[] = dataLines.map((line, idx) => {
+        const cols = line.split(',').map((s) => s.trim());
+        const date = dateIdx >= 0 ? cols[dateIdx] : cols[0] || '';
+        const description = descIdx >= 0 ? cols[descIdx] : cols[1] || 'Unknown';
+        const amtStr = amtIdx >= 0 ? cols[amtIdx] : cols[2] || cols[cols.length - 1] || '0';
+        const amount = Math.abs(parseFloat(amtStr.replace(/[^0-9.-]/g, '')));
+        return { id: `bank-${idx}`, date, description, amount };
+      }).filter((r) => r.amount > 0 && r.date);
+
+      if (parsedData.length === 0) {
+        throw new Error('No valid transactions found.');
+      }
+
+      setBankData(parsedData);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to parse bank file. Ensure it has Date, Description, and Amount.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const matches: MatchResult[] = useMemo(() => {
@@ -135,8 +161,8 @@ export default function BankReconciliation({ receipts }: BankReconciliationProps
           <p className="mt-1 text-xs text-text-secondary mb-4">CSV format: Date, Description, Amount</p>
           <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#dfcaaa] to-champagne px-4 py-3 text-sm font-bold text-black shadow-lg transition hover:opacity-90">
             <Upload className="h-4 w-4" />
-            Upload CSV
-            <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+            Upload File
+            <input type="file" accept=".csv,application/pdf" className="hidden" onChange={handleFileUpload} />
           </label>
         </div>
       )}
@@ -157,8 +183,8 @@ export default function BankReconciliation({ receipts }: BankReconciliationProps
               <p className="text-xs text-text-secondary">Found receipts for {matchedCount} out of {bankData.length} transactions.</p>
             </div>
             <label className="cursor-pointer text-xs font-semibold text-champagne hover:text-champagne/80">
-              Upload New CSV
-              <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+              Upload New File
+              <input type="file" accept=".csv,application/pdf" className="hidden" onChange={handleFileUpload} />
             </label>
           </div>
 

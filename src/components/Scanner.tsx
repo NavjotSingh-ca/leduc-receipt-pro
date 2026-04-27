@@ -5,6 +5,7 @@ import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, Upload, Layers } fro
 import { motion, AnimatePresence } from 'framer-motion';
 import JSZip from 'jszip';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import confetti from 'canvas-confetti';
 
 import { scanReceipt, generateEmbedding } from '@/app/actions/scan-receipt';
 import { generateDuplicateHash, generateIntegrityHash } from '@/lib/hash';
@@ -132,6 +133,12 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setPendingSave(false);
       
       if (!isBatchProcessing) {
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ['#dfcaaa', '#be9e71', '#10b981', '#3b82f6']
+        });
         resetScanner();
         onSaveSuccess();
         showNotice('success', 'Receipt saved successfully.');
@@ -526,7 +533,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         ref={galleryInputRef}
         type="file"
         multiple
-        accept="image/*,.zip"
+        accept="image/*,.zip,application/pdf"
         className="hidden"
         onChange={async (event) => {
           await handleFilesSelected(event.target.files);

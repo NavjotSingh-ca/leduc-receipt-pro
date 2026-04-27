@@ -20,7 +20,7 @@ export async function generateDuplicateHash(
   return generateSHA256(normalized);
 }
 
-export async function generateIntegrityHash(fileBuffer: ArrayBuffer): Promise<string> {
+export async function generateIntegrityHash(fileBuffer: BufferSource): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
