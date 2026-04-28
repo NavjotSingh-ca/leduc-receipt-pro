@@ -126,12 +126,27 @@ export const getReimbursementsPending = async (userId: string): Promise<ReceiptR
 };
 
 export const getBusinessUnits = async () => {
-  const { data, error } = await supabase.from('businessunits').select('id, name');
+  const { data, error } = await supabase.from('business_units').select('id, name');
   if (error) {
     console.error('Error fetching business units:', error);
     throw error;
   }
   return data || [];
+};
+
+export const deleteReceipt = async (receiptId: string, userId: string): Promise<void> => {
+  const { error } = await supabase
+    .from('receipts')
+    .update({ is_deleted: true, updated_at: new Date().toISOString() })
+    .eq('id', receiptId);
+
+  if (error) throw error;
+
+  await supabase.from('audit_logs').insert({
+    user_id: userId,
+    action: 'receiptdeleted',
+    details: `Receipt marked as deleted by user ${userId}.`,
+  });
 };
 
 export const getAuditLogs = async (limit = 50) => {

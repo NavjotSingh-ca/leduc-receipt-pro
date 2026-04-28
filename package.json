@@ -1,5 +1,5 @@
 {
-  "name": "leduc-receipt-scanner",
+  "name": "9-star-labs-receipt-pro",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -25,7 +25,6 @@
     "lenis": "1.3.23",
     "lucide-react": "^1.8.0",
     "next": "16.2.2",
-    "pdfjs-dist": "^5.6.205",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.72.1",

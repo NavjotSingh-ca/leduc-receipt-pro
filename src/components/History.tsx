@@ -16,8 +16,8 @@ import {
   Receipt,
   RefreshCw,
   Save,
-  Search,
   Tag,
+  Trash2,
   X,
   XCircle,
   BrainCircuit,
@@ -25,7 +25,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { semanticSearchAction } from '@/app/actions/semantic-search';
-import { updateReceiptApproval, updateReceiptNotes } from '@/lib/services/receipts';
+import { updateReceiptApproval, updateReceiptNotes, deleteReceipt } from '@/lib/services/receipts';
 import { CATEGORIES } from '@/components/scanner/types';
 
 import type { ReceiptRow } from '@/lib/types';
@@ -455,6 +455,26 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
     }
   }
 
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  async function handleDelete() {
+    if (!window.confirm("Are you sure you want to delete this receipt? This action will move it to the trash.")) return;
+    setDeleteLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      await deleteReceipt(receipt.id, user.id);
+      
+      onClose();
+      if (onUpdate) await onUpdate();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Delete failed.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   const imageUrl = receipt.image_url ?? '';
   const integrityHash = receipt.integrity_hash ?? '';
 
@@ -493,13 +513,24 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-text-muted transition hover:bg-surface-hover hover:text-text-primary shadow-lg hover:scale-110 active:scale-90"
-          >
-            <X className="h-6 w-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleteLoading}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-400 transition hover:bg-red-500/20 shadow-lg hover:scale-110 active:scale-90 disabled:opacity-50 disabled:scale-100"
+              title="Delete Receipt"
+            >
+              {deleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-text-muted transition hover:bg-surface-hover hover:text-text-primary shadow-lg hover:scale-110 active:scale-90"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">

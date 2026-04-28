@@ -23,14 +23,14 @@ export default function PrivacyPage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">Privacy Policy</h1>
-              <p className="mt-2 text-sm text-text-secondary">9 Star Labs Inc. — Effective Date: April 27, 2026</p>
+              <p className="mt-2 text-sm text-text-secondary">9 Star Labs — Effective Date: April 27, 2026</p>
               <p className="mt-1 text-xs text-champagne font-semibold uppercase tracking-widest">PIPEDA Compliant</p>
             </div>
           </div>
 
           <div className="prose prose-invert max-w-none text-text-secondary prose-headings:text-white prose-a:text-champagne">
             <p className="text-sm leading-relaxed text-text-secondary">
-              9 Star Labs Inc. ("9 Star Labs", "we", "us", or "our") is committed to protecting your personal information in accordance with the <em>Personal Information Protection and Electronic Documents Act</em> (PIPEDA) and applicable provincial privacy legislation. This policy explains how we collect, use, disclose, and retain your information.
+              9 Star Labs ("9 Star Labs", "we", "us", or "our") is committed to protecting your personal information in accordance with the <em>Personal Information Protection and Electronic Documents Act</em> (PIPEDA) and applicable provincial privacy legislation. This policy explains how we collect, use, disclose, and retain your information.
             </p>
 
             <h2>1. Information We Collect</h2>

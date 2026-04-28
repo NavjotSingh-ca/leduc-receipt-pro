@@ -1,52 +1,50 @@
-# Leduc Receipt Pro
+# 9 Star Labs
 
-**Leduc Receipt Pro** is an enterprise-grade, CRA-ready receipt scanning and management web application. Designed specifically for Canadian businesses, it ensures your financial documents are captured with high fidelity, processed for tax compliance, and stored securely with an immutable audit trail.
+**9 Star Labs** is an enterprise-grade, multi-tenant receipt scanning and compliance platform. Engineered specifically for Canadian businesses, it provides pristine capture, AI-powered extraction, automated compliance workflows, and immutable audit trails across multiple independent organizations.
 
 ## 🚀 Features
 
+### 🏢 Multi-Tenant Organization Engine
+- **Tenant Isolation**: Secure data segregation ensures each business's receipts, audits, and employees remain completely isolated.
+- **Role-Based Access Control**: Strict Owner, Accountant, and Employee roles govern visibility and actions within each organization.
+
 ### 📸 Intelligent Receipt Capture & OCR
-- **Edge-device Processing**: In-browser resizing (up to 2000px) and manual cropping to ensure pristine capture before any network upload.
-- **AI-Powered OCR**: Uses Google Generative AI to extract vendor details, itemizations, subtotals, and specific Canadian tax portions (GST/HST/PST).
-- **CRA Readiness Scoring**: Evaluates the receipt automatically to determine if it meets minimum Canadian Revenue Agency requirements (business number, clear amounts, dates).
+- **Edge-device Processing**: In-browser image resizing and a zero-scroll precision cropping modal ensure pristine capture.
+- **AI-Powered Extraction**: Uses Google Generative AI to accurately extract vendors, line items, and specific Canadian taxes (GST/HST/PST).
+- **CRA Readiness**: Automatically scores the receipt for minimum Canada Revenue Agency requirements (Business Numbers, clear dates).
 
 ### 🛡️ Legal Fortress Suite
-- **Deterministic Duplicate Detection**: Generates a fast SHA-256 integrity hash payload on the raw image blob, and combines it with vendor/date/amount fingerprinting to catch duplicates instantly.
-- **Confirmation Gating**: Implements strict UX confirmation checkboxes forcing users to verify AI accuracy against physical receipts before creating an official record.
-- **Immutable Audit Logs**: Tracks every creation and update natively, ensuring a clear chain of custody.
+- **Immutable Audit Logs**: Tracks every creation, update, and soft-deletion with Merkle-chain-like event hashing.
+- **Archive-Before-Update**: A rigorous history system preserves the original state of a receipt before any manual edits.
+- **Duplicate & Fraud Detection**: Generates fast SHA-256 integrity payloads to catch exact duplicates and flags anomalies (e.g., weekend purchases, non-deductible estimates).
 
-### 📱 PWA Support
-- Installable as a Progressive Web App (PWA) on iOS, Android, and Desktop environments for a native-like experience. Includes completely offline UI assets and rapid load times.
+### ⌨️ Professional Workflows
+- **Approvals Queue**: Accountants and Owners can review employee submissions using rapid Keyboard Godmode (A = Approve, R = Reject).
+- **Reimbursement Tracking**: Complete life-cycle tracking for employee out-of-pocket expenses.
+- **Semantic AI Search**: Ask questions like "Coffee with clients in Calgary" to instantly find specific records.
 
 ## 🛠️ Tech Stack
-- **Framework**: Next.js (App Router)
-- **Styling**: Tailwind CSS, Lucide Icons
-- **Database / Auth / Storage**: Supabase
-- **AI / LLM**: Google Generative AI 
+- **Framework**: Next.js (React 19)
+- **Styling**: Tailwind CSS (Obsidian Elegance Theme)
+- **Database / Auth / Security**: Supabase (RLS enforced multi-tenancy)
+- **AI / LLM**: Google Generative AI
 
 ## 📦 Getting Started
 
-### Prerequisites
-
-You need [Node.js](https://nodejs.org/) installed, along with your preferred package manager (npm, pnpm, or yarn).
-
 ### Installation
-
-1. Copy `.env.example` to `.env.local` and populate your API credentials:
+1. Copy `.env.example` to `.env.local` and add:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `GEMINI_API_KEY` (if running your own GenAI inference)
+   - `GEMINI_API_KEY`
 
-2. Install dependencies:
+2. Initialize the Database:
+   - Run the provided `migration.sql` script in the Supabase SQL Editor to construct the multi-tenant architecture and RLS policies.
+
+3. Install & Run:
 ```bash
 npm install
-```
-
-3. Run the development server:
-```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) with your browser to launch the web client.
-
 ## 🧾 License
-Proprietary / Internal Business Use Only - Leduc App Suite
+Proprietary / Internal Business Use Only - 9 Star Labs.

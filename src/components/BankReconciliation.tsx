@@ -58,17 +58,7 @@ export default function BankReconciliation({ receipts }: BankReconciliationProps
     try {
       let text = '';
       if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-        const pdfjsLib = await import('pdfjs-dist');
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          // @ts-expect-error - pdfjs types
-          const strings = content.items.map((item) => item.str);
-          text += strings.join(' ') + '\n';
-        }
+        throw new Error('PDF parsing is no longer supported. Please upload a CSV.');
       } else {
         text = await file.text();
       }

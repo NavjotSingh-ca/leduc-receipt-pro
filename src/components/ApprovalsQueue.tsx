@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
@@ -11,7 +11,6 @@ import {
   Loader2,
   ThumbsDown,
   ThumbsUp,
-  User,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getReceiptsPendingApproval, updateReceiptApproval, bulkUpdateApproval } from '@/lib/services/receipts';
@@ -195,6 +194,22 @@ export default function ApprovalsQueue({ role }: ApprovalsQueueProps) {
       invalidate();
     },
   });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (selected.size === 0 || bulkMutation.isPending) return;
+
+      if (e.key.toLowerCase() === 'a') {
+        bulkMutation.mutate('approved');
+      } else if (e.key.toLowerCase() === 'r') {
+        bulkMutation.mutate('rejected');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selected, bulkMutation]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
