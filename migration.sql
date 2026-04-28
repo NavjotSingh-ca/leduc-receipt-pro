@@ -371,4 +371,58 @@ BEGIN
 END;
 $$;
 
+-- ─── 11. OMEGA AUTO-TENANT LOGIC ───
+
+-- Trigger to automatically set org_id on receipts based on the user's role mapping
+CREATE OR REPLACE FUNCTION set_receipt_org_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.org_id IS NULL THEN
+    NEW.org_id := (SELECT org_id FROM user_roles WHERE user_id = NEW.user_id LIMIT 1);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_set_receipt_org_id ON receipts;
+CREATE TRIGGER trg_set_receipt_org_id
+BEFORE INSERT ON receipts
+FOR EACH ROW EXECUTE FUNCTION set_receipt_org_id();
+
+-- Same for audit_logs
+CREATE OR REPLACE FUNCTION set_audit_log_org_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.org_id IS NULL THEN
+    NEW.org_id := (SELECT org_id FROM user_roles WHERE user_id = NEW.user_id LIMIT 1);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_set_audit_log_org_id ON audit_logs;
+CREATE TRIGGER trg_set_audit_log_org_id
+BEFORE INSERT ON audit_logs
+FOR EACH ROW EXECUTE FUNCTION set_audit_log_org_id();
+
+
+-- EMERGENCY BOOTSTRAP: Ensure all existing users in auth.users have an organization
+-- This fixes the "no records" issue for users who were already registered.
+DO $$
+DECLARE
+  u record;
+  v_org_id uuid;
+BEGIN
+  FOR u IN SELECT id, email FROM auth.users LOOP
+    IF NOT EXISTS (SELECT 1 FROM user_roles WHERE user_id = u.id) THEN
+      INSERT INTO organizations (name) 
+      VALUES (COALESCE(SPLIT_PART(u.email, '@', 1) || '''s Workspace', 'Default Organization'))
+      RETURNING id INTO v_org_id;
+      
+      INSERT INTO user_roles (user_id, org_id, role)
+      VALUES (u.id, v_org_id, 'Owner');
+    END IF;
+  END LOOP;
+END $$;
+
 NOTIFY pgrst, 'reload schema';

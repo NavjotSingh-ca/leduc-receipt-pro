@@ -191,7 +191,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
       onClick={onCancel}
     >
       {/* Header (Fixed) */}
-      <div className="flex-none border-b border-glass-border bg-surface px-5 py-6 z-10" onClick={(e) => e.stopPropagation()}>
+      <div className="flex-none border-b border-glass-border bg-surface px-5 py-4 z-10" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <h3 className="text-lg font-black uppercase tracking-widest text-text-primary">Precision Crop</h3>
@@ -223,7 +223,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
             ref={imageRef}
             src={imageSrc}
             alt="Crop source"
-            className="max-h-[65vh] w-auto object-contain select-none opacity-90"
+            className="max-h-[60vh] max-w-full h-auto w-auto object-contain select-none opacity-90"
             onLoad={syncBounds}
           />
 
@@ -257,7 +257,7 @@ export default function ManualCropper({ imageSrc, fileName, onCancel, onApply }:
 
       {/* Footer (Fixed Dock) */}
       <div 
-        className="fixed bottom-0 left-0 right-0 z-[210] border-t border-glass-border bg-obsidian/80 p-6 pb-safe-bottom backdrop-blur-3xl shadow-[0_-20px_60px_rgba(0,0,0,0.9)]"
+        className="fixed bottom-0 left-0 right-0 z-[210] border-t border-glass-border bg-obsidian/80 p-4 pb-safe-bottom backdrop-blur-3xl shadow-[0_-20px_60px_rgba(0,0,0,0.9)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto max-w-lg flex items-center justify-between gap-4">

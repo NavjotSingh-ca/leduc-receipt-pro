@@ -755,74 +755,80 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
                 </div>
               )}
 
-              <div className="grid h-full gap-6 lg:grid-cols-2">
-                {/* Image Section */}
-                <div className="space-y-4">
-                  <div className="overflow-hidden rounded-[2.5rem] border border-glass-border bg-surface shadow-lg">
-                    <div className="flex items-center justify-between border-b border-glass-border bg-surface-raised/50 px-6 py-4">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-widest text-text-muted">Digital Capture</p>
-                        <p className="mt-0.5 text-sm font-bold text-text-primary truncate max-w-[150px] sm:max-w-none">{originalFileName || 'receipt.jpg'}</p>
+              {!showCropper && (
+                <div className={hasAnalyzed ? "grid h-full gap-6 lg:grid-cols-2" : "mx-auto flex max-w-2xl flex-col gap-6"}>
+                  {/* Image Section */}
+                  <div className="space-y-4">
+                    <div className="overflow-hidden rounded-[2.5rem] border border-glass-border bg-surface shadow-lg">
+                      <div className="flex items-center justify-between border-b border-glass-border bg-surface-raised/50 px-6 py-4">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-widest text-text-muted">Digital Capture</p>
+                          <p className="mt-0.5 text-sm font-bold text-text-primary truncate max-w-[150px] sm:max-w-none">{originalFileName || 'receipt.jpg'}</p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCropper(true)}
+                            className="rounded-xl border border-glass-border bg-surface px-4 py-2 text-xs font-bold text-text-secondary transition hover:bg-surface-hover hover:text-text-primary"
+                          >
+                            Crop
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resetScanner}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-glass-border bg-surface text-text-secondary transition hover:bg-surface-hover hover:text-red-400"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowCropper(true)}
-                          className="rounded-xl border border-glass-border bg-surface px-4 py-2 text-xs font-bold text-text-secondary transition hover:bg-surface-hover hover:text-text-primary"
-                        >
-                          Crop
-                        </button>
-                        <button
-                          type="button"
-                          onClick={resetScanner}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-glass-border bg-surface text-text-secondary transition hover:bg-surface-hover hover:text-red-400"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </button>
+                      <div className="relative bg-obsidian group">
+                        <img
+                          src={imageSrc}
+                          alt="Captured receipt"
+                          className="max-h-[60vh] w-full object-contain transition-transform duration-700 group-hover:scale-[1.01] sm:max-h-[70vh]"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-obsidian/20 to-transparent pointer-events-none" />
                       </div>
                     </div>
 
-                    <div className="relative bg-obsidian group">
-                      <img
-                        src={imageSrc}
-                        alt="Captured receipt"
-                        className="max-h-[60vh] w-full object-contain transition-transform duration-700 group-hover:scale-[1.01] sm:max-h-[70vh]"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-obsidian/20 to-transparent pointer-events-none" />
+                    {!hasAnalyzed && (
+                      <motion.button
+                        type="button"
+                        onClick={() => onProcessAI()}
+                        disabled={!canProcess}
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="inline-flex w-full items-center justify-center gap-3 rounded-[1.5rem] bg-champagne py-4 text-sm font-black uppercase tracking-[0.15em] text-obsidian transition hover:bg-champagne-dim shadow-xl shadow-champagne/10 disabled:cursor-not-allowed disabled:opacity-40 glowing-border"
+                      >
+                        {processingAI ? <Loader2 className="h-5 w-5 animate-spin" /> : <ScanLine className="h-5 w-5" />}
+                        {processingAI ? 'AI Analysis in Progress...' : 'Start AI Analysis'}
+                      </motion.button>
+                    )}
+                  </div>
+
+                  {/* Form Section - Only visible after analysis */}
+                  {hasAnalyzed && (
+                    <div 
+                      ref={formContainerRef} 
+                      className="min-w-0 rounded-[2.5rem] bg-surface-raised/30 p-1 lg:overflow-y-auto lg:max-h-[calc(100vh-10rem)] no-scrollbar"
+                    >
+                      <div className="p-1">
+                        <ScannerForm
+                          formData={formData}
+                          setFormData={setFormData}
+                          businessUnits={businessUnits}
+                          saving={saving || processingAI || loadingBusinessUnits}
+                          onSave={() => performSave(false, formData)}
+                          hasAnalyzed={hasAnalyzed}
+                        />
+                      </div>
                     </div>
-                  </div>
-
-                  <motion.button
-                    type="button"
-                    onClick={() => onProcessAI()}
-                    disabled={!canProcess}
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    className={`inline-flex w-full items-center justify-center gap-3 rounded-[1.5rem] bg-champagne py-4 text-sm font-black uppercase tracking-[0.15em] text-obsidian transition hover:bg-champagne-dim shadow-xl shadow-champagne/10 disabled:cursor-not-allowed disabled:opacity-40 ${!hasAnalyzed ? 'glowing-border' : ''}`}
-                  >
-                    {processingAI ? <Loader2 className="h-5 w-5 animate-spin" /> : <ScanLine className="h-5 w-5" />}
-                    {processingAI ? 'AI Analysis in Progress...' : 'Start AI Analysis'}
-                  </motion.button>
+                  )}
                 </div>
-
-                {/* Form Section */}
-                <div 
-                  ref={formContainerRef} 
-                  className="min-w-0 rounded-[2.5rem] bg-surface-raised/30 p-1 lg:overflow-y-auto lg:max-h-[calc(100vh-10rem)] no-scrollbar"
-                >
-                  <div className="p-1">
-                    <ScannerForm
-                      formData={formData}
-                      setFormData={setFormData}
-                      businessUnits={businessUnits}
-                      saving={saving || processingAI || loadingBusinessUnits}
-                      onSave={() => performSave(false, formData)}
-                      hasAnalyzed={hasAnalyzed}
-                    />
-                  </div>
-                </div>
-              </div>
+              )}
             </>
           )}
         </div>
