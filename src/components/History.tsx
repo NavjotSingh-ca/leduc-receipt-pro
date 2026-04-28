@@ -463,15 +463,14 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-3xl sm:items-center"
+      className="fixed inset-0 z-[150] flex items-end justify-center bg-black/80 backdrop-blur-2xl sm:items-center p-4"
       onClick={onClose}
     >
       <motion.div
-        layoutId={`receipt-card-${receipt.id}`}
-        initial={{ y: 0, opacity: 1, scale: 1 }}
+        initial={{ y: 20, opacity: 0, scale: 0.98 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.97 }}
-        transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+        exit={{ y: 20, opacity: 0, scale: 0.98 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[2.5rem] border border-glass-border bg-surface shadow-2xl sm:max-w-3xl sm:rounded-[2.5rem] sm:mb-8"
         onClick={(e) => e.stopPropagation()}
       >
@@ -497,9 +496,9 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-raised text-text-muted transition hover:bg-surface-hover hover:text-text-primary shadow-sm"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-text-muted transition hover:bg-surface-hover hover:text-text-primary shadow-lg hover:scale-110 active:scale-90"
           >
-            <X className="h-5 w-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
