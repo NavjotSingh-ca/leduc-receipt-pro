@@ -30,7 +30,7 @@ const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.6;
 const STORAGE_BUCKET = 'receipt-images';
 const BATCH_LIMIT = 50;
-const BLUR_THRESHOLD = 80; // Laplacian variance — below this = blurry
+const BLUR_THRESHOLD = 40; // Laplacian variance — below this = blurry
 
 /** Laplacian variance blur detection via greyscale canvas convolution */
 async function computeBlurScore(dataUrl: string): Promise<number> {
@@ -89,6 +89,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const [loadingBusinessUnits, setLoadingBusinessUnits] = useState(true);
   const [processingAI, setProcessingAI] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [showCropper, setShowCropper] = useState(false);
   const [duplicateCandidate, setDuplicateCandidate] = useState<DuplicateCandidate>(null);
@@ -136,8 +137,8 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       if (imageSrc) {
         try {
           const response = await fetch(imageSrc);
-          const blob = await response.blob();
-          const arrayBuffer = await blob.arrayBuffer();
+          const arrayBuffer = await response.arrayBuffer();
+          const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
           integrityHash = await generateIntegrityHash(arrayBuffer);
 
           const filePath = `${user.id}/${Date.now()}-receipt.jpg`;
@@ -161,7 +162,14 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         integrityHash = await generateIntegrityHash(new TextEncoder().encode(JSON.stringify(localFormData)).buffer);
       }
 
-      const aiEmbedding = await generateEmbedding(JSON.stringify(localFormData));
+      const aiEmbedding = await generateEmbedding({
+        vendor_name: localFormData.vendor_name,
+        category: localFormData.category,
+        notes: localFormData.notes,
+        vendor_address: localFormData.vendor_address,
+        transaction_date: localFormData.transaction_date,
+        total_amount: localFormData.total_amount
+      });
 
       let payload = {
         ...localFormData,
@@ -201,6 +209,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setSqlError(error.message || 'A critical database error occurred.');
     },
     onSettled: () => {
+      savingRef.current = false;
       setSaving(false);
     }
   });
@@ -212,7 +221,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setLoadingBusinessUnits(true);
 
       const { data, error } = await supabase
-        .from('businessunits')
+        .from('business_units')
         .select('id, name')
         .order('name', { ascending: true });
 
@@ -434,9 +443,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       showNotice('info', 'AI Extraction starting...');
       
       // Auto-trigger AI to fix the loop and advance state
-      setTimeout(() => {
-        onProcessAI(resized);
-      }, 50);
+      onProcessAI(resized);
     } catch (error) {
       showNotice('error', error instanceof Error ? error.message : 'Failed to apply crop.');
     }
@@ -485,7 +492,8 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   }
 
   async function performSave(bypassCheck = false, finalFormData?: ReceiptForm) {
-    if (saving || (!imageSrc && batchQueue.length === 0)) return;
+    if (savingRef.current || (!imageSrc && batchQueue.length === 0)) return;
+    savingRef.current = true;
     setSaving(true);
     setNotice(null);
 
@@ -501,30 +509,43 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     await performSave(true);
   }
 
-  async function processNextBatchItem() {
-    setBatchQueue(prev => {
-      if (prev.length === 0) {
-        setIsBatchProcessing(false);
-        setBatchTotal(0);
-        setBatchProgress(0);
-        showNotice('success', 'Batch processing completed.');
-        onSaveSuccess();
-        return [];
-      }
+  async function processNextBatchItem(queue?: File[], total?: number) {
+    const currentQueue = queue || batchQueue;
+    const currentTotal = total || batchTotal;
+    
+    if (currentQueue.length === 0) {
+      setIsBatchProcessing(false);
+      setBatchTotal(0);
+      setBatchProgress(0);
+      showNotice('success', 'Batch processing completed.');
+      onSaveSuccess();
+      return;
+    }
+    
+    const [nextFile, ...remaining] = currentQueue;
+    setBatchQueue(remaining);
+    setBatchProgress(currentTotal - remaining.length);
+    
+    try {
+      const rawDataUrl = await readFileAsDataUrl(nextFile);
+      const resized = await resizeTo2000px(rawDataUrl, 'image/jpeg');
+      setImageSrc(resized);
+      setOriginalFileName(nextFile.name);
+      setMimeType(nextFile.type || 'image/jpeg');
       
-      const nextFile = prev[0];
-      const remaining = prev.slice(1);
+      setFormData((prev) => ({
+        ...createBlankReceiptForm(),
+        capture_source: prev.capture_source,
+        usage_type: prev.usage_type,
+        business_use_percent: prev.business_use_percent,
+        business_unit_id: prev.business_unit_id,
+      }));
       
-      setBatchProgress(batchTotal - remaining.length);
-      
-      onCapture(nextFile).then(() => {
-        setTimeout(() => {
-          onProcessAI();
-        }, 1500);
-      });
-      
-      return remaining;
-    });
+      await onProcessAI(resized);
+    } catch (err) {
+      showNotice('error', 'Failed to read file: ' + nextFile.name);
+      setTimeout(() => processNextBatchItem(remaining, currentTotal), 1000);
+    }
   }
 
   async function handleFilesSelected(filesList: FileList | null) {
@@ -575,9 +596,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       const firstFile = processedFiles[0];
       setBatchQueue(processedFiles.slice(1));
       
-      onCapture(firstFile).then(() => {
-        setTimeout(() => onProcessAI(), 1500);
-      });
+      processNextBatchItem(processedFiles, processedFiles.length);
     }
   }
 

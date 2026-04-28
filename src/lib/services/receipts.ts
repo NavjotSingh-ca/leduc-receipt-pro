@@ -118,7 +118,7 @@ export const getReimbursementsPending = async (userId: string): Promise<ReceiptR
     .select('*')
     .eq('is_deleted', false)
     .eq('needs_reimbursement', true)
-    .in('reimbursement_status', ['pending', null])
+    .or('reimbursement_status.eq.pending,reimbursement_status.is.null')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -153,18 +153,9 @@ export const getAuditLogs = async (limit = 50) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  // Find users invited by this user to restrict data access
-  const { data: invitedUsers } = await supabase
-    .from('user_roles')
-    .select('user_id')
-    .eq('invited_by', user.id);
-
-  const allowedUserIds = [user.id, ...(invitedUsers?.map(u => u.user_id) || [])];
-
   const { data, error } = await supabase
     .from('audit_logs')
     .select('*')
-    .in('user_id', allowedUserIds)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {
@@ -312,6 +303,7 @@ export const updateReceipt = async (
     .from('receipt_history')
     .insert({
       receipt_id: originalReceipt.id,
+      user_id: originalReceipt.user_id,
       vendor_name: originalReceipt.vendor_name,
       vendor_tax_number: originalReceipt.vendor_tax_number ?? originalReceipt.business_number ?? null,
       business_number: originalReceipt.business_number ?? null,
@@ -407,7 +399,14 @@ export const saveReceipt = async (
     math_mismatch_warning: isMismatch,
     cad_equivalent: cadEquivalent,
     exchange_rate: exchangeRate,
-  };
+  } as Record<string, unknown>;
+
+  // Strip empty strings to prevent database pollution
+  Object.keys(finalPayload).forEach(key => {
+    if (finalPayload[key] === '') {
+      finalPayload[key] = null;
+    }
+  });
 
   const { data, error } = await supabase
     .from('receipts')

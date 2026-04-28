@@ -144,7 +144,7 @@ export default function History({
       const { data: { session } } = await supabase.auth.getSession();
       const accessToken = session?.access_token;
       const userId = session?.user?.id;
-      const results = await semanticSearchAction(search.trim(), accessToken, userId);
+      const results = await semanticSearchAction(search.trim());
       setSemanticResults(results.map((r) => r.id));
     } catch (err) {
       console.error(err);

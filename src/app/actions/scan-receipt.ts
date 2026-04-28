@@ -189,22 +189,39 @@ function normalizeDate(raw: string): string {
   const s = raw.trim();
   if (!s) return todayISO();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  
+  // Try common Canadian formats (MM/DD/YYYY or DD/MM/YYYY)
+  const mdy = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (mdy) {
+    const [, m, d, y] = mdy;
+    const year = y.length === 2 ? `20${y}` : y;
+    return `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+  
+  const longDate = new Date(s);
+  if (!isNaN(longDate.getTime())) return longDate.toISOString().split('T')[0];
+  
   return todayISO();
 }
 
-function reconcileTaxes(raw: Record<string, unknown>, _address: string) {
-  return { 
-    subtotal: toNum(raw.subtotal), 
-    tax_amount: toNum(raw.tax_amount ?? raw.gst), 
-    pst_amount: toNum(raw.pst_amount ?? raw.pst), 
-    total_amount: toNum(raw.total_amount ?? raw.total) 
-  };
-}
 
-// Ensure the generateEmbedding function uses gemini for text embeddings
-export async function generateEmbedding(text: string): Promise<number[] | null> {
+
+// Optimize embedding by omitting boolean flags and empty strings
+export async function generateEmbedding(form: {
+  vendor_name: string; category: string; notes: string;
+  vendor_address?: string; transaction_date?: string; total_amount?: number;
+}): Promise<number[] | null> {
   if (!process.env.GOOGLE_AI_KEY) return null;
   try {
+    const text = [
+      form.vendor_name,
+      form.category,
+      form.notes,
+      form.vendor_address,
+      form.transaction_date,
+      form.total_amount ? `$${form.total_amount.toFixed(2)} CAD` : '',
+    ].filter(Boolean).join(' | ');
+
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_KEY);
     const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
     const result = await model.embedContent(text);
@@ -217,6 +234,10 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
 
 export async function scanReceipt(base64Image: string, captureSource: string = 'camera'): Promise<ScanReceiptResult> {
   if (!process.env.GOOGLE_AI_KEY) return { success: false, error: 'AI service not configured.' };
+  
+  if (base64Image.length > 6_000_000) {
+    return { success: false, error: 'Image too large. Maximum 4MB after encoding.' };
+  }
   
   let imagePayload = prepareImage(base64Image);
 
@@ -260,7 +281,7 @@ export async function scanReceipt(base64Image: string, captureSource: string = '
         notes: SMART_PURPOSE[toStr(parsed.category) as ValidCategory] || '',
         currency: toStr(parsed.currency) || 'CAD',
         confidence_score: toNum(parsed.confidence_score) || 85,
-        cra_readiness_score: 90, // Simplified, rely on live score
+        cra_readiness_score: 0, // Computed live on client
         thermal_warning: Boolean(parsed.thermal_warning),
         document_type: (toStr(parsed.document_type).toLowerCase() || 'receipt') as any,
         duplicate_warning: false,

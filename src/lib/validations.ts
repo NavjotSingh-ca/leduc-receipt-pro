@@ -24,7 +24,7 @@ export const receiptFormSchema = z.object({
   transaction_date: z.string().min(1, 'Date is required'),
   transaction_time: z.string(),
 
-  total_amount: z.number().min(0.01, 'Total must be greater than zero'),
+  total_amount: z.number().min(0, 'Total cannot be negative'),
   subtotal: z.number().min(0, 'Subtotal cannot be negative'),
   tax_amount: z.number().min(0, 'Tax amount cannot be negative'),
   pst_amount: z.number().min(0, 'PST amount cannot be negative'),
@@ -64,15 +64,6 @@ export const receiptFormSchema = z.object({
   updated_at: z.string().optional(),
 
   line_items: z.array(receiptLineItemSchema).optional(),
-}).superRefine((data, ctx) => {
-  // Explanatory Guardrail: Vehicle ID for fuel
-  if (data.category?.toLowerCase().includes('fuel') && !data.vehicle_id?.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Vehicle ID is recommended for Fuel input tax credits.',
-      path: ['vehicle_id'],
-    });
-  }
 });
 
 export type ReceiptFormValues = z.infer<typeof receiptFormSchema>;

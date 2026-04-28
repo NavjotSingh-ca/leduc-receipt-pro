@@ -2,15 +2,15 @@ import { supabase } from '@/lib/supabase';
 import type { UserRole } from '@/lib/types';
 
 export const getUserRole = async (userId: string): Promise<UserRole> => {
-  if (!userId) return 'Owner'; // Default to Owner per 9 Star Labs spec
+  if (!userId) return 'Employee'; // Default to Employee for fail-closed security
   const { data, error } = await supabase
     .from('user_roles')
     .select('role')
     .eq('user_id', userId)
     .single();
 
-  // Default to Owner if no role is found (new users are Owners)
-  if (error || !data) return 'Owner';
+  // Default to Employee if no role is found (fail-closed)
+  if (error || !data) return 'Employee';
   return data.role as UserRole;
 };
 
