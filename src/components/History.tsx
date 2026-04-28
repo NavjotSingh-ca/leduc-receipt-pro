@@ -695,11 +695,24 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
               </div>
               <div className="grid gap-x-4 gap-y-4 p-5 sm:grid-cols-2">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">GST / Business Number</p>
-                  <p className="mt-0.5 text-sm font-mono font-medium text-text-primary">{receipt.vendor_tax_number || '—'}</p>
-                </div>
-                <div>
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Category</p>
+                  {editing ? (
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-glass-border bg-surface-raised px-3 py-1.5 text-sm text-text-primary outline-none focus:border-champagne/40"
+                    >
+                      {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="mt-0.5 text-sm font-medium text-text-primary">{category || '—'}</p>
+                  )}
+                </div>
+
+                <div className="sm:col-span-2 mt-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted mb-2">Business purpose</p>
                   {editing ? (
                     <select
                       value={category}
