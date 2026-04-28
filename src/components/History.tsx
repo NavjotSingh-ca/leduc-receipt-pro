@@ -472,7 +472,7 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
         animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.97 }}
         transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-        className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-glass-border bg-surface shadow-2xl sm:max-w-2xl sm:rounded-3xl"
+        className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[2.5rem] border border-glass-border bg-surface shadow-2xl sm:max-w-3xl sm:rounded-[2.5rem] sm:mb-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-glass-border px-5 py-4">
@@ -497,7 +497,7 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl p-2 text-text-muted transition hover:bg-surface-raised hover:text-text-secondary"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-raised text-text-muted transition hover:bg-surface-hover hover:text-text-primary shadow-sm"
           >
             <X className="h-5 w-5" />
           </button>
@@ -505,13 +505,21 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
 
         <div className="flex-1 overflow-y-auto">
           {imageUrl ? (
-            <div className="border-b border-glass-border bg-obsidian">
-              <img src={imageUrl} alt="Receipt" className="max-h-80 w-full object-contain" />
+            <div className="relative group border-b border-glass-border bg-obsidian/20 overflow-hidden">
+              <img 
+                src={imageUrl} 
+                alt="Receipt" 
+                className="max-h-[50vh] w-full object-contain transition-transform duration-500 group-hover:scale-[1.02]" 
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-obsidian/40 to-transparent pointer-events-none" />
             </div>
           ) : (
-            <div className="border-b border-glass-border bg-surface-raised px-5 py-8 text-center">
-              <Eye className="mx-auto mb-2 h-8 w-8 text-text-muted/30" />
-              <p className="text-sm text-text-muted">No image preview available.</p>
+            <div className="border-b border-glass-border bg-surface-raised/50 px-5 py-12 text-center">
+              <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-3xl bg-surface p-4 shadow-inner">
+                <Eye className="h-8 w-8 text-text-muted/20" />
+              </div>
+              <p className="text-sm font-medium text-text-muted">High-Security Image Storage</p>
+              <p className="mt-1 text-[10px] uppercase tracking-widest text-text-muted/60">No visual preview available for this node</p>
             </div>
           )}
 
