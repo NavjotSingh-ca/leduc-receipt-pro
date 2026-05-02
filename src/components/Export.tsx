@@ -285,21 +285,25 @@ export default function Export({ receipts }: ExportProps) {
 
       const imageFolder = zip.folder('images');
       if (imageFolder) {
-        await Promise.allSettled(
-          filteredReceipts.map(async (r) => {
-            const imageUrl = getImageUrl(r);
-            if (!imageUrl) return;
+        const batchSize = 10;
+        for (let i = 0; i < filteredReceipts.length; i += batchSize) {
+          const batch = filteredReceipts.slice(i, i + batchSize);
+          await Promise.allSettled(
+            batch.map(async (r) => {
+              const imageUrl = getImageUrl(r);
+              if (!imageUrl) return;
 
-            try {
-              const response = await fetch(imageUrl);
-              const blob = await response.blob();
-              const filename = imageUrl.split('/').pop()?.split('?')[0] || `${r.id}.jpg`;
-              imageFolder.file(filename, blob);
-            } catch {
-              imageFolder.file(`${r.id}.txt`, 'Image unavailable for this record.');
-            }
-          })
-        );
+              try {
+                const response = await fetch(imageUrl);
+                const blob = await response.blob();
+                const filename = imageUrl.split('/').pop()?.split('?')[0] || `${r.id}.jpg`;
+                imageFolder.file(filename, blob);
+              } catch {
+                imageFolder.file(`${r.id}.txt`, 'Image unavailable for this record.');
+              }
+            })
+          );
+        }
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });

@@ -23,24 +23,34 @@ type MatchResult = {
   score: number;
 };
 
-// Basic Levenshtein distance for fuzzy matching
+// TODO: Pre-indexing Levenshtein (e.g. using a BK-Tree or sorted n-gram index) to achieve O(n log n)
+// search is out-of-scope for this sprint. Below is a space-optimized O(min(m,n)) memory implementation.
 function levenshteinDistance(a: string, b: string): number {
-  const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
-  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  
+  if (a.length > b.length) {
+    const tmp = a;
+    a = b;
+    b = tmp;
   }
-  return matrix[b.length][a.length];
+  
+  const row = Array.from({ length: a.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= b.length; i++) {
+    let prev = i;
+    for (let j = 1; j <= a.length; j++) {
+      let val;
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        val = row[j - 1];
+      } else {
+        val = Math.min(row[j - 1] + 1, prev + 1, row[j] + 1);
+      }
+      row[j - 1] = prev;
+      prev = val;
+    }
+    row[a.length] = prev;
+  }
+  return row[a.length];
 }
 
 export default function BankReconciliation({ receipts }: BankReconciliationProps) {
@@ -96,11 +106,28 @@ export default function BankReconciliation({ receipts }: BankReconciliationProps
   };
 
   const matches: MatchResult[] = useMemo(() => {
+    const sortedReceipts = [...receipts].sort((a, b) => toNumber(a.total_amount) - toNumber(b.total_amount));
+
     return bankData.map(bankRow => {
       let bestMatch: ReceiptRow | null = null;
       let highestScore = 0;
 
-      for (const receipt of receipts) {
+      // Binary search to find the candidate range in O(log n)
+      const findIndex = (amt: number) => {
+        let low = 0, high = sortedReceipts.length;
+        while (low < high) {
+          let mid = (low + high) >>> 1;
+          if (toNumber(sortedReceipts[mid].total_amount) < amt) low = mid + 1;
+          else high = mid;
+        }
+        return low;
+      };
+
+      const startIdx = findIndex(bankRow.amount - 1.0);
+      const endIdx = findIndex(bankRow.amount + 1.0);
+      const candidates = sortedReceipts.slice(startIdx, endIdx);
+
+      for (const receipt of candidates) {
         let score = 0;
         const receiptTotal = toNumber(receipt.total_amount);
 

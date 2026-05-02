@@ -75,27 +75,29 @@ export const receiptSchema = z.object({
 
 // ─── Receipt Queries ───
 
-export const getReceipts = async (role: UserRole, userId?: string): Promise<ReceiptRow[]> => {
+export async function getReceipts(role: UserRole, userId?: string, limit = 1000, offset = 0): Promise<ReceiptRow[]> {
   if (!userId) return [];
 
-  let queryReq = supabase
+  let query = supabase
     .from('receipts')
     .select('*')
     .eq('is_deleted', false)
+    .range(offset, offset + limit - 1)
+    .order('transaction_date', { ascending: false })
     .order('created_at', { ascending: false });
 
   if (role === 'Employee') {
-    queryReq = queryReq.eq('user_id', userId);
+    query = query.eq('user_id', userId);
   }
 
-  const { data, error } = await queryReq;
+  const { data, error } = await query;
   if (error) {
     console.error('Error fetching receipts:', error);
     throw error;
   }
 
   return (data || []).map((row) => receiptSchema.parse(row) as ReceiptRow);
-};
+}
 
 export const getReceiptsPendingApproval = async (): Promise<ReceiptRow[]> => {
   const { data, error } = await supabase

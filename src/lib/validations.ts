@@ -39,8 +39,8 @@ export const receiptFormSchema = z.object({
   category: z.enum(CATEGORIES_MUTABLE),
   notes: z.string(),
 
-  job_code: z.string(),
-  vehicle_id: z.string(),
+  job_code: z.string().optional(),
+  vehicle_id: z.string().optional(),
   usage_type: z.enum(USAGE_TYPES_MUTABLE).nullable(),
   business_use_percent: z.number().min(0).max(100),
   business_unit_id: z.string(),

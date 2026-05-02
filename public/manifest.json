@@ -1,29 +1,27 @@
 {
-  "name": "Telos Labs",
-  "short_name": "Telos Labs",
-  "description": "Audit-ready receipt intelligence for Canadian businesses",
+  "name": "9 Star Labs — Receipt Intelligence",
+  "short_name": "9 Star Labs",
+  "description": "CRA-compliant AI-powered receipt capture and expense management for Canadian businesses.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#0c0c0c",
+  "theme_color": "#bea98e",
+  "orientation": "portrait-primary",
+  "categories": ["business", "finance", "productivity"],
   "icons": [
     {
-      "src": "/web-app-manifest-192x192.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     },
     {
-      "src": "/web-app-manifest-512x512.png",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/web-app-manifest-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
 }

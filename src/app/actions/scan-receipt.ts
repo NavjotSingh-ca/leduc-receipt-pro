@@ -147,9 +147,13 @@ Rules:
 - RETURN ONLY THE JSON OBJECT. No markdown, no fences.`;
 }
 
-function prepareImage(raw: string): { data: string; mimeType: string } {
-  const dataUri = raw.match(/^data:(image\/(?:jpeg|jpg|png|webp|gif));base64,([\s\S]+)$/i);
-  if (dataUri) return { mimeType: dataUri[1].toLowerCase().replace('jpg', 'jpeg'), data: dataUri[2].replace(/\s/g, '') };
+function preparePayload(raw: string): { data: string; mimeType: string } {
+  // Support both images AND PDFs
+  const dataUri = raw.match(/^data:((?:image\/(?:jpeg|jpg|png|webp|gif))|(?:application\/pdf));base64,([\s\S]+)$/i);
+  if (dataUri) {
+    const mime = dataUri[1].toLowerCase().replace('image/jpg', 'image/jpeg');
+    return { mimeType: mime, data: dataUri[2].replace(/\s/g, '') };
+  }
   return { mimeType: 'image/jpeg', data: raw.replace(/\s/g, '') };
 }
 
@@ -204,7 +208,74 @@ function normalizeDate(raw: string): string {
   return todayISO();
 }
 
+/** Detect province from vendor address and validate tax rates */
+function validateProvinceTax(
+  vendor_address: string,
+  subtotal: number,
+  tax_amount: number,
+  pst_amount: number
+): { province: string | null; tax_warning: string | null } {
+  const addr = vendor_address.toUpperCase();
+  const provinceMatch = addr.match(
+    /\b(AB|BC|MB|SK|ON|QC|NS|NB|NL|PE|NT|NU|YT)\b/
+  );
+  if (!provinceMatch || subtotal <= 0) return { province: null, tax_warning: null };
 
+  const prov = provinceMatch[1];
+  const expected = PROVINCE_TAX[prov];
+  if (!expected) return { province: prov, tax_warning: null };
+
+  const expectedGST = Math.round(subtotal * expected.gst * 100) / 100;
+  const expectedPST = Math.round(subtotal * expected.pst * 100) / 100;
+
+  const warnings: string[] = [];
+  if (Math.abs(tax_amount - expectedGST) > 0.10 && tax_amount > 0) {
+    warnings.push(`GST expected ~$${expectedGST.toFixed(2)} for ${prov}, got $${tax_amount.toFixed(2)}`);
+  }
+  if (expected.pst > 0 && Math.abs(pst_amount - expectedPST) > 0.10) {
+    warnings.push(`PST expected ~$${expectedPST.toFixed(2)} for ${prov}, got $${pst_amount.toFixed(2)}`);
+  }
+  if (expected.pst === 0 && pst_amount > 0) {
+    warnings.push(`${prov} has no PST but $${pst_amount.toFixed(2)} PST was detected`);
+  }
+
+  return {
+    province: prov,
+    tax_warning: warnings.length > 0 ? warnings.join('; ') : null,
+  };
+}
+
+/** Run a second Gemini pass to self-correct math, dates, and BN format */
+async function selfCorrectExtraction(
+  genAI: GoogleGenerativeAI,
+  firstPass: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  try {
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: { temperature: 0.05, responseMimeType: 'application/json' },
+    });
+
+    const validationPrompt = `You previously extracted this receipt data:
+${JSON.stringify(firstPass)}
+
+Verify these rules and return ONLY a corrected JSON object:
+1) subtotal + tax_amount + pst_amount should equal total_amount (within $0.05). If not, adjust the amounts to be internally consistent.
+2) transaction_date must be a valid ISO date (YYYY-MM-DD). If invalid, set to today.
+3) If vendor_tax_number exists, verify it loosely matches pattern digits followed by RT and 4 digits. If clearly wrong, set to empty string.
+4) If any field looks hallucinated or impossible (negative amounts, future dates beyond 30 days, vendor_name that is gibberish), set it to null.
+5) Ensure confidence_score reflects your actual confidence (0-100) after corrections.
+
+Return the corrected JSON only. Keep the same schema.`;
+
+    const result = await model.generateContent([validationPrompt]);
+    const corrected = parseSafely(result.response.text());
+    return corrected;
+  } catch {
+    // If self-correction fails, return original data unchanged
+    return firstPass;
+  }
+}
 
 // Optimize embedding by omitting boolean flags and empty strings
 export async function generateEmbedding(form: {
@@ -239,7 +310,7 @@ export async function scanReceipt(base64Image: string, captureSource: string = '
     return { success: false, error: 'Image too large. Maximum 4MB after encoding.' };
   }
   
-  let imagePayload = prepareImage(base64Image);
+  const payload = preparePayload(base64Image);
 
   try {
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_KEY);
@@ -250,10 +321,13 @@ export async function scanReceipt(base64Image: string, captureSource: string = '
 
     const result = await model.generateContent([
       buildPrompt(captureSource),
-      { inlineData: { data: imagePayload.data, mimeType: imagePayload.mimeType } },
+      { inlineData: { data: payload.data, mimeType: payload.mimeType } },
     ]);
 
-    const parsed = parseSafely(result.response.text());
+    const rawParsed = parseSafely(result.response.text());
+
+    // AI Self-Correction Pass — validate math, dates, BN format
+    const parsed = await selfCorrectExtraction(genAI, rawParsed);
 
     // Basic sanitize (condensed for Godmode build)
     const vendor_name = toStr(parsed.vendor_name) || 'Unknown Vendor';
@@ -262,11 +336,15 @@ export async function scanReceipt(base64Image: string, captureSource: string = '
     const pst_amount = toNum(parsed.pst_amount);
     const total_amount = toNum(parsed.total_amount);
 
+    // Province tax validation
+    const vendorAddr = toStr(parsed.vendor_address);
+    const { province, tax_warning } = validateProvinceTax(vendorAddr, subtotal, tax_amount, pst_amount);
+
     return {
       success: true,
       data: {
         vendor_name,
-        vendor_address: toStr(parsed.vendor_address),
+        vendor_address: vendorAddr,
         business_number: toStr(parsed.vendor_tax_number),
         total_amount,
         subtotal,
@@ -278,7 +356,7 @@ export async function scanReceipt(base64Image: string, captureSource: string = '
         payment_reference: toStr(parsed.payment_reference),
         card_last_four: toStr(parsed.card_last_four).replace(/\D/g, '').slice(-4),
         category: toStr(parsed.category),
-        notes: SMART_PURPOSE[toStr(parsed.category) as ValidCategory] || '',
+        notes: [SMART_PURPOSE[toStr(parsed.category) as ValidCategory] || '', tax_warning ? `⚠️ Tax Alert: ${tax_warning}` : ''].filter(Boolean).join(' — '),
         currency: toStr(parsed.currency) || 'CAD',
         confidence_score: toNum(parsed.confidence_score) || 85,
         cra_readiness_score: 0, // Computed live on client

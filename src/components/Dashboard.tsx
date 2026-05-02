@@ -50,8 +50,8 @@ const currencyFormatter = new Intl.NumberFormat('en-CA', {
   maximumFractionDigits: 2,
 });
 
-function formatMonthLabel(value: string): string {
-  if (!value || !/^\d{4}-\d{2}$/.test(value)) return value;
+function formatMonthLabel(value: string | undefined | null): string {
+  if (!value || typeof value !== 'string' || !/^\d{4}-\d{2}$/.test(value)) return String(value || 'Unknown');
   const [year, month] = value.split('-').map(Number);
   const date = new Date(year, month - 1, 1);
   return date.toLocaleDateString('en-CA', { month: 'short', year: '2-digit' });
@@ -61,6 +61,66 @@ function formatShortCurrency(value: number): string {
   if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
   if (value >= 1000) return `$${(value / 1000).toFixed(1)}k`;
   return `$${Math.round(value)}`;
+}
+
+/* ─── GST Recovery Meter (SVG Arc) ─── */
+function GSTRecoveryMeter({ gstRecoverable, pstRecoverable, totalSpent }: { gstRecoverable: number; pstRecoverable: number; totalSpent: number }) {
+  const combinedTax = gstRecoverable + pstRecoverable;
+  // Effective tax rate as percentage of spend
+  const effectiveRate = totalSpent > 0 ? (combinedTax / totalSpent) * 100 : 0;
+  // Progress toward a visual threshold (e.g., 5% of total = "full" recovery)
+  const targetRate = 5; // 5% GST is the AB standard
+  const fillPct = Math.min((effectiveRate / targetRate) * 100, 100);
+
+  const radius = 40;
+  const circumference = Math.PI * radius; // half circle
+  const offset = circumference - (fillPct / 100) * circumference;
+
+  return (
+    <Card className="rounded-[2rem] border border-glass-border bg-surface shadow-sm !ring-0 overflow-hidden">
+      <div className="flex flex-col items-center p-6">
+        <svg width="120" height="70" viewBox="0 0 120 70">
+          {/* Background arc */}
+          <path
+            d="M 10 65 A 50 50 0 0 1 110 65"
+            fill="none"
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="10"
+            strokeLinecap="round"
+          />
+          {/* Filled arc */}
+          <motion.path
+            d="M 10 65 A 50 50 0 0 1 110 65"
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 1, ease: [0.34, 1.56, 0.64, 1] }}
+          />
+        </svg>
+        <p className="-mt-2 text-2xl font-black tabular-nums text-emerald-light">
+          {currencyFormatter.format(combinedTax)}
+        </p>
+        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted">
+          Total Tax Recoverable
+        </p>
+        <div className="mt-3 flex gap-4 text-xs">
+          <div className="text-center">
+            <p className="font-bold tabular-nums text-text-primary">{currencyFormatter.format(gstRecoverable)}</p>
+            <p className="text-text-muted">GST/HST</p>
+          </div>
+          <div className="h-6 w-px bg-glass-border" />
+          <div className="text-center">
+            <p className="font-bold tabular-nums text-text-primary">{currencyFormatter.format(pstRecoverable)}</p>
+            <p className="text-text-muted">PST/QST</p>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 
@@ -230,6 +290,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
   } = useMemo(() => {
     const totalSpent = receipts.reduce((sum, r) => sum + toNumber(r.total_amount), 0);
     const gstRecoverable = receipts.reduce((sum, r) => sum + toNumber(r.tax_amount), 0);
+    const pstRecoverable = receipts.reduce((sum, r) => sum + toNumber(r.pst_amount), 0);
     const receiptCount = receipts.length;
     const avgTransaction = receiptCount > 0 ? totalSpent / receiptCount : 0;
 
@@ -304,6 +365,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
       missingBNCount,
       pendingReviewCount,
       flaggedAuditCount,
+      pstRecoverable,
       reimbursementQueue,
     };
   }, [receipts]);
@@ -345,11 +407,22 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
           helper="Stored in the vault"
           icon={<Receipt className="h-5 w-5" />}
         />
+      </div>
+
+      {/* GST/PST Recovery Meter */}
+      <div className="grid gap-4 sm:grid-cols-[1fr_1fr] lg:grid-cols-[1fr_1fr_1fr]">
+        <GSTRecoveryMeter gstRecoverable={gstRecoverable} pstRecoverable={pstRecoverable} totalSpent={totalSpent} />
         <StatCard
           label="Avg. Transaction"
           value={currencyFormatter.format(avgTransaction)}
           helper="Average receipt amount"
           icon={<TrendingUp className="h-5 w-5" />}
+        />
+        <StatCard
+          label="Effective Tax Rate"
+          value={totalSpent > 0 ? `${(((gstRecoverable + pstRecoverable) / totalSpent) * 100).toFixed(1)}%` : '0.0%'}
+          helper="Combined GST+PST as % of spend"
+          icon={<DollarSign className="h-5 w-5" />}
         />
       </div>
 

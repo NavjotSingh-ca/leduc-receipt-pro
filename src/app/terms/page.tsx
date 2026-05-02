@@ -1,91 +1,134 @@
 import Link from 'next/link';
-import { ArrowLeft, Scale } from 'lucide-react';
+import { ArrowLeft, FileSignature } from 'lucide-react';
 import { AuroraBackground } from '@/components/aceternity/aurora-background';
+import type { Metadata } from 'next';
 
-export const metadata = {
-  title: 'Terms of Service — 9 Star Labs',
-  description: 'Terms of Service for 9 Star Labs CRA receipt intelligence platform.',
+export const metadata: Metadata = {
+  title: 'Terms of Service — 9 Star Labs Receipt Intelligence',
+  description: 'Terms of Service and License Agreement for 9 Star Labs.',
+  robots: { index: true, follow: true },
 };
+
+function B({ children }: { children: React.ReactNode }) {
+  return <strong className="font-semibold text-text-primary">{children}</strong>;
+}
+
+function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="scroll-mt-24">
+      <h2 className="mt-10 mb-4 text-xl font-bold text-white border-b border-white/10 pb-3">
+        {title}
+      </h2>
+      <div className="space-y-4 text-sm leading-7 text-text-secondary">{children}</div>
+    </section>
+  );
+}
 
 export default function TermsPage() {
   return (
     <AuroraBackground>
       <div className="relative z-10 mx-auto max-w-4xl px-4 py-20 sm:px-6">
-        <Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-champagne transition hover:text-champagne-dim mb-8">
-          <ArrowLeft className="h-4 w-4" />
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-sm font-semibold text-champagne transition hover:text-champagne-dim mb-10 group"
+        >
+          <ArrowLeft className="h-4 w-4 transition group-hover:-translate-x-1" />
           Return to App
         </Link>
-        
-        <div className="rounded-[2.5rem] border border-glass-border bg-black/60 p-8 shadow-2xl backdrop-blur-3xl sm:p-12">
-          <div className="mb-10 flex items-center gap-4 border-b border-white/10 pb-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-champagne/15 champagne-glow">
-              <Scale className="h-8 w-8 text-champagne" />
+
+        <div className="rounded-[2.5rem] border border-glass-border bg-black/60 p-8 shadow-2xl backdrop-blur-3xl sm:p-14">
+          <div className="mb-10 flex items-start gap-5 border-b border-white/10 pb-10">
+            <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-champagne/15 champagne-glow">
+              <FileSignature className="h-8 w-8 text-champagne" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">Terms of Service</h1>
-              <p className="mt-2 text-sm text-text-secondary">9 Star Labs — Effective Date: April 27, 2026</p>
+              <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
+                Terms of Service
+              </h1>
+              <p className="mt-2 text-sm text-text-secondary">
+                <B>9 Star Labs Inc.</B> — Edmonton, Alberta, Canada
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full border border-champagne/30 bg-champagne/10 px-3 py-1 text-[11px] font-black uppercase tracking-widest text-champagne">
+                  Legal Agreement
+                </span>
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-black uppercase tracking-widest text-emerald-400">
+                  Effective: April 27, 2026
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="prose prose-invert max-w-none text-text-secondary prose-headings:text-white prose-a:text-champagne">
-            <h2>1. Acceptance of Terms</h2>
-            <p>
-              By accessing and using 9 Star Labs ("the Service"), you agree to be bound by these Terms of Service. The Service provides data extraction, organization, and compliance tools specifically designed for Canadian business entities and their interactions with the Canada Revenue Agency (CRA). If you do not agree, do not use the Service.
-            </p>
-
-            <h2>2. Data Accuracy and Human Review</h2>
-            <p>
-              The Service utilizes advanced AI (Google Gemini 2.5 Flash) to extract data from uploaded images. <strong>The AI is not infallible.</strong> You are solely responsible for reviewing and confirming the accuracy of all extracted data — including subtotals, tax amounts (GST/PST), vendor information, and Business Numbers — before saving records. The CRA Readiness Score is an informational tool, not a guarantee of compliance.
-            </p>
-
-            <h2>3. CRA Compliance and Liability</h2>
-            <p>
-              While the Service generates CRA Audit Packages and implements IC05-1R1-aligned controls such as SHA-256 integrity hashing, Merkle chain audit logs, and immutable edit history, <strong>9 Star Labs is not a substitute for professional accounting or legal advice.</strong> You retain full responsibility for maintaining compliance with CRA requirements, including the mandatory 6-year retention policy for original source documents (Income Tax Act, s. 230).
-            </p>
-            <p>
-              <strong>Estimates vs. Receipts:</strong> Documents classified as "Estimates" are not CRA-deductible financial records. Do not treat them as such until a final invoice or receipt is received and confirmed.
-            </p>
-
-            <h2>4. Acceptable Use</h2>
-            <p>
-              You agree not to upload falsified, fraudulent, or malicious documents. The Service employs automated anomaly detection (AI Fraud Sensor); suspicious activity may result in account suspension pending review. You may not use the Service to:
-            </p>
-            <ul>
-              <li>Submit fabricated financial records to government agencies.</li>
-              <li>Circumvent tax obligations or misrepresent expense claims.</li>
-              <li>Attempt to reverse-engineer, decompile, or tamper with the Service infrastructure.</li>
-            </ul>
-
-            <h2>5. Role-Based Access and Multi-User Environments</h2>
-            <p>
-              The Service provides Owner, Employee, and Accountant roles. Owners are responsible for the actions of all users they invite to their workspace. Access codes are single-use and expire in 24 hours. Owners must not share access codes via insecure channels.
-            </p>
-
-            <h2>6. Data Ownership</h2>
-            <p>
-              You retain full ownership of all data you upload to the Service. 9 Star Labs claims no intellectual property rights over your receipts, invoices, or financial records. You may export and delete your data at any time, subject to the CRA 6-year retention requirements noted in our Privacy Policy.
-            </p>
-
-            <h2>7. Service Availability</h2>
-            <p>
-              9 Star Labs is provided "as is." We strive for high availability but do not guarantee uninterrupted service. We are not liable for data loss arising from network failures, provided you have maintained your own backup exports per the CRA retention requirements.
-            </p>
-
-            <h2>8. Limitation of Liability</h2>
-            <p>
-              To the maximum extent permitted by applicable law, 9 Star Labs shall not be liable for any indirect, incidental, special, or consequential damages arising from your use of the Service, including but not limited to tax penalties resulting from inaccurate AI extraction that was not reviewed and corrected by the user.
-            </p>
-
-            <h2>9. Governing Law</h2>
-            <p>
-              These Terms are governed by the laws of the Province of Alberta and the federal laws of Canada applicable therein, without regard to conflict of law principles.
-            </p>
-
-            <h2>10. Contact</h2>
-            <p>
-              For legal inquiries, contact us at: <a href="mailto:legal@9starlabs.ca">legal@9starlabs.ca</a>
+          <div className="mb-8 rounded-2xl border border-champagne/20 bg-champagne/[0.04] p-5">
+            <p className="text-sm leading-7 text-text-secondary">
+              By accessing or using the 9 Star Labs Receipt Intelligence platform (the &ldquo;Service&rdquo;),
+              you agree to be bound by these Terms of Service. Please read them carefully. If you do not
+              agree to these terms, you may not use the Service.
             </p>
           </div>
+
+          <Section id="acceptance" title="1. Acceptance of Terms">
+            <p>
+              These Terms of Service constitute a legally binding agreement between you (whether personally
+              or on behalf of an entity) and 9 Star Labs Inc. (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;), concerning your access
+              to and use of the 9 Star Labs web application.
+            </p>
+          </Section>
+
+          <Section id="license" title="2. License & Access">
+            <p>
+              We grant you a limited, non-exclusive, non-transferable, revocable license to use the Service
+              for your internal business purposes. You shall not reverse-engineer, decompile, or attempt to
+              extract the source code of the Service or its underlying AI models.
+            </p>
+          </Section>
+
+          <Section id="cra-compliance" title="3. CRA Compliance & Tax Liability">
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-4 mb-4">
+              <p className="font-semibold text-amber-300 text-sm mb-1">No Tax Advice or Guarantee</p>
+              <p>
+                The Service provides &ldquo;CRA Readiness Scores&rdquo; and tax rate validations based on AI extraction.
+                These are informational tools only. <B>9 Star Labs does not provide tax, legal, or accounting advice.</B>
+                You are solely responsible for ensuring that your receipts and records comply with the
+                <em> Income Tax Act</em> and <em>Excise Tax Act</em> requirements. We do not guarantee
+                that records accepted by our system will be accepted by the Canada Revenue Agency during an audit.
+              </p>
+            </div>
+          </Section>
+
+          <Section id="ai-accuracy" title="4. AI Extraction Accuracy">
+            <p>
+              The Service utilizes generative AI models to extract text from your uploads. While we implement
+              secondary validation passes, AI is inherently subject to inaccuracies (&ldquo;hallucinations&rdquo;).
+              You agree that you must review and verify all extracted data before saving it. We are not liable
+              for any financial losses, tax penalties, or reporting errors arising from inaccurate AI extractions.
+            </p>
+          </Section>
+
+          <Section id="data-retention" title="5. Data Retention">
+            <p>
+              To support compliance, we retain approved records for a minimum of 7 years. You agree not to
+              attempt to circumvent our retention locks. If you delete an account, we maintain the records
+              as required by law before final destruction.
+            </p>
+          </Section>
+
+          <Section id="limitation" title="6. Limitation of Liability">
+            <p>
+              To the maximum extent permitted by applicable law, 9 Star Labs shall not be liable for any
+              indirect, incidental, special, consequential, or punitive damages, including loss of profits,
+              data, or business interruption, arising out of your use of the Service. Our total liability
+              shall not exceed the amount you paid us in the twelve (12) months preceding the claim.
+            </p>
+          </Section>
+          
+          <Section id="governing" title="7. Governing Law">
+            <p>
+              These Terms shall be governed by and construed in accordance with the laws of the Province of
+              Alberta and the federal laws of Canada applicable therein, without regard to conflict of law principles.
+            </p>
+          </Section>
+
         </div>
       </div>
     </AuroraBackground>

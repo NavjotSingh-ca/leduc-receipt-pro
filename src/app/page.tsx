@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   Camera,
@@ -501,6 +501,27 @@ function AppContent() {
     enabled: !!userId && role !== 'Employee',
   });
 
+  // ─── Supabase Realtime: auto-invalidate TanStack cache on DB changes ───
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel('receipts-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'receipts' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['receipts'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, queryClient]);
+
   const handleFilterClick = useCallback((filter: string) => {
     setActiveFilter(filter);
     setTabWithUrl('receipts');
@@ -790,6 +811,27 @@ function AppContent() {
                         <div className="text-left"><p className="text-sm font-bold text-white">Invite Team Member</p><p className="text-xs text-white/50">Generate 6-digit access code</p></div>
                       </button>
                     )}
+                    <button onClick={async () => {
+                      const code = window.prompt('Enter 6-digit access code:');
+                      if (!code || code.trim().length !== 6) return;
+                      const confirm = window.confirm(`Are you sure you want to redeem access code ${code}?`);
+                      if (confirm) {
+                        try {
+                          const res = await redeemAccessCode(code.trim(), user?.id || '');
+                          if (res.success) {
+                            showToast('success', `Success! Assigned role: ${res.role}. Refreshing...`);
+                            setTimeout(() => window.location.reload(), 2000);
+                          } else {
+                            showToast('error', res.error || 'Invalid or expired code.');
+                          }
+                        } catch (err: any) {
+                          showToast('error', err.message || 'Failed to redeem code.');
+                        }
+                      }
+                    }} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15 text-blue-400"><ShieldCheck className="h-5 w-5" /></div>
+                      <div className="text-left"><p className="text-sm font-bold text-white">Redeem Access Code</p><p className="text-xs text-white/50">Join a workspace</p></div>
+                    </button>
                   </>
                 )}
                 

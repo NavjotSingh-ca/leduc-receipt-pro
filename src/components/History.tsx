@@ -41,6 +41,43 @@ import {
   reimbursementBadge,
 } from '@/lib/ui-utils';
 
+/* ─── Skeleton Loader for Receipt Cards ─── */
+function ReceiptSkeleton() {
+  return (
+    <div className="rounded-2xl border border-glass-border bg-surface p-4 animate-pulse">
+      <div className="flex items-start gap-3">
+        <div className="h-11 w-11 rounded-xl shimmer-loading flex-shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 w-32 rounded shimmer-loading" />
+          <div className="h-3 w-48 rounded shimmer-loading" />
+          <div className="h-3 w-24 rounded shimmer-loading" />
+        </div>
+        <div className="h-6 w-16 rounded-full shimmer-loading" />
+      </div>
+    </div>
+  );
+}
+
+export function ReceiptSkeletonList({ count = 5 }: { count?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: count }).map((_, i) => (
+        <ReceiptSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
+/* ─── Contextual Empty States ─── */
+const emptyStateMap: Record<string, { title: string; subtitle: string }> = {
+  'flagged-audit': { title: 'No flagged receipts', subtitle: 'All receipts pass your audit rules.' },
+  'reimbursement': { title: 'No pending reimbursements', subtitle: 'All employee expenses are settled.' },
+  'approved': { title: 'No approved receipts', subtitle: 'Receipts will appear here once approved by the owner.' },
+  'review': { title: 'No receipts pending review', subtitle: 'All submissions have been processed.' },
+  'missing': { title: 'No incomplete receipts', subtitle: 'All receipts have complete information.' },
+  'all': { title: 'No receipts yet', subtitle: 'Scan your first receipt to start building your CRA-compliant ledger.' },
+};
+
 type HistoryProps = {
   receipts: ReceiptRow[];
   activeFilter?: string;
@@ -91,9 +128,9 @@ export default function History({
             toNumber(r.total_amount) <= 0
         );
       } else if (normalizedFilter === 'approved') {
-        items = items.filter((r) => toNumber(r.confidence_score) >= 85);
+        items = items.filter((r) => r.approval_status === 'approved');
       } else if (normalizedFilter === 'review' || normalizedFilter === 'pending-review') {
-        items = items.filter((r) => toNumber(r.confidence_score) < 85);
+        items = items.filter((r) => r.approval_status === 'submitted' || !r.approval_status);
       } else if (normalizedFilter === 'flagged-audit') {
         items = items.filter(
           (r) =>
@@ -228,10 +265,15 @@ export default function History({
         {filteredReceipts.length === 0 ? (
           <div className="rounded-3xl border border-glass-border bg-surface p-12 text-center shadow-sm">
             <Receipt className="mx-auto mb-3 h-12 w-12 text-text-muted/30" />
-            <p className="text-sm font-medium text-text-secondary">
+            <p className="text-sm font-semibold text-text-primary">
               {receipts.length === 0
-                ? 'No receipts yet. Scan your first receipt to get started.'
-                : 'No receipts match your current filter or search.'}
+                ? (emptyStateMap['all'].title)
+                : (emptyStateMap[activeFilter.toLowerCase()] ?? emptyStateMap['all']).title}
+            </p>
+            <p className="mt-1 text-xs text-text-secondary">
+              {receipts.length === 0
+                ? emptyStateMap['all'].subtitle
+                : (emptyStateMap[activeFilter.toLowerCase()] ?? emptyStateMap['all']).subtitle}
             </p>
           </div>
         ) : (
@@ -353,9 +395,10 @@ export default function History({
         )}
       </div>
 
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {selectedReceipt && (
           <ReceiptDetailModal
+            key={`detail-${selectedReceipt.id}`}
             receipt={selectedReceipt}
             onClose={() => setSelectedReceipt(null)}
             role={role}
@@ -518,8 +561,9 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
               type="button"
               onClick={handleDelete}
               disabled={deleteLoading}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-400 transition hover:bg-red-500/20 shadow-lg hover:scale-110 active:scale-90 disabled:opacity-50 disabled:scale-100"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500/10 text-red-400 transition hover:bg-red-500/20 shadow-lg hover:scale-110 active:scale-90 disabled:opacity-50 disabled:scale-100"
               title="Delete Receipt"
+              aria-label="Delete receipt"
             >
               {deleteLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>
@@ -527,6 +571,7 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
               type="button"
               onClick={onClose}
               className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-text-muted transition hover:bg-surface-hover hover:text-text-primary shadow-lg hover:scale-110 active:scale-90"
+              aria-label="Close receipt detail"
             >
               <X className="h-6 w-6" />
             </button>

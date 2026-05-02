@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertTriangle, CheckCircle2, DollarSign, FileText, Hash, Plus, Trash2, Info, Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 import type { ReceiptForm, ReceiptLineItem, ScannerFormProps } from './types';
 import { CATEGORIES, PAYMENT_METHODS, USAGE_TYPES } from './types';
@@ -47,12 +48,42 @@ function updateComputedLineTotal(item: ReceiptLineItem): ReceiptLineItem {
   };
 }
 
-/* ─── CRA Score Color ─── */
-
 function craScoreColor(score: number): string {
+  if (score >= 80) return '#10b981';
+  if (score >= 60) return '#f59e0b';
+  return '#ef4444';
+}
+
+function craScoreBgClass(score: number): string {
   if (score >= 80) return 'bg-emerald-500';
   if (score >= 60) return 'bg-amber-500';
   return 'bg-red-500';
+}
+
+/* ─── Animated CRA Score Ring ─── */
+function CRAScoreRing({ score }: { score: number }) {
+  const radius = 36;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (score / 100) * circumference;
+  const color = craScoreColor(score);
+
+  return (
+    <svg width="88" height="88" viewBox="0 0 88 88" className="flex-shrink-0">
+      <circle cx="44" cy="44" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
+      <motion.circle
+        cx="44" cy="44" r={radius} fill="none" stroke={color} strokeWidth="8"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference}
+        animate={{ strokeDashoffset: offset }}
+        transition={{ duration: 0.8, ease: [0.34, 1.56, 0.64, 1] }}
+        strokeLinecap="round"
+        transform="rotate(-90 44 44)"
+      />
+      <text x="44" y="49" textAnchor="middle" fill={color} fontSize="14" fontWeight="800">
+        {score}
+      </text>
+    </svg>
+  );
 }
 
 export default function ScannerForm({
@@ -484,8 +515,7 @@ export default function ScannerForm({
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Vehicle ID</label>
-              <input type="text" {...register('vehicle_id')} className={errors.vehicle_id ? errorInputCls : inputCls} placeholder="Truck 12" />
-              {errors.vehicle_id && <p className="mt-1 text-xs text-red-500">{errors.vehicle_id.message}</p>}
+              <input type="text" {...register('vehicle_id')} className={needsVehicleId ? warningInputCls : inputCls} placeholder="Truck 12" />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Business unit</label>
@@ -560,17 +590,20 @@ export default function ScannerForm({
           </div>
         </div>
 
-        {/* CRA Score Bar (Live) */}
+        {/* CRA Score Ring (Animated SVG) */}
         <div className="rounded-2xl border border-glass-border bg-surface-raised px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">CRA Readiness</p>
-            <p className="text-xs font-bold tabular-nums text-champagne">{liveCRAScore}/100</p>
-          </div>
-          <div className="h-2 w-full rounded-full bg-obsidian overflow-hidden">
-            <div
-              className={`h-full rounded-full cra-score-bar ${craScoreColor(liveCRAScore)}`}
-              style={{ width: `${liveCRAScore}%` }}
-            />
+          <div className="flex items-center gap-4">
+            <CRAScoreRing score={liveCRAScore} />
+            <div className="flex-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">CRA Readiness</p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-champagne">{liveCRAScore}/100</p>
+              <div className="mt-2 h-1.5 w-full rounded-full bg-obsidian overflow-hidden">
+                <div
+                  className={`h-full rounded-full cra-score-bar ${craScoreBgClass(liveCRAScore)}`}
+                  style={{ width: `${liveCRAScore}%` }}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </section>
