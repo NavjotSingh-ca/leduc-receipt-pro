@@ -452,14 +452,28 @@ function AppContent() {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error: sessionError }) => {
       if (!mounted) return;
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        setAuthLoading(false);
+        return;
+      }
+      
       setUser(data.session?.user ?? null);
       if (data.session?.user) {
-        getUserRole(data.session.user.id).then(r => { if (mounted) { setRole(r); setAuthLoading(false); } });
+        getUserRole(data.session.user.id)
+          .then(r => { if (mounted) { setRole(r); setAuthLoading(false); } })
+          .catch(e => { 
+            console.error('Role error:', e); 
+            if (mounted) { setRole('Employee'); setAuthLoading(false); } 
+          });
       } else {
         setAuthLoading(false);
       }
+    }).catch(e => {
+      console.error('Auth boot error:', e);
+      if (mounted) setAuthLoading(false);
     });
 
     const {
@@ -468,15 +482,26 @@ function AppContent() {
       if (!mounted) return;
       setUser(session?.user ?? null);
       if (session?.user) {
-        getUserRole(session.user.id).then(r => { if (mounted) { setRole(r); setAuthLoading(false); } });
+        getUserRole(session.user.id)
+          .then(r => { if (mounted) { setRole(r); setAuthLoading(false); } })
+          .catch(() => { if (mounted) { setRole('Employee'); setAuthLoading(false); } });
       } else {
         setAuthLoading(false);
       }
     });
 
+    // Safety Timeout: Force stop loading after 6s if Supabase/DB is hanging
+    const safetyTimeout = setTimeout(() => {
+      if (mounted && authLoading) {
+        console.warn('Auth boot timed out. Forcing UI load.');
+        setAuthLoading(false);
+      }
+    }, 6000);
+
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      clearTimeout(safetyTimeout);
     };
   }, []);
 
@@ -695,7 +720,7 @@ function AppContent() {
               exit="exit"
               transition={tabTransition}
             >
-              <History receipts={receipts} activeFilter={activeFilter} onUpdate={() => { fetchReceipts(); }} role={role} />
+              <History receipts={receipts} activeFilter={activeFilter} onUpdate={() => { fetchReceipts(); }} role={role} userId={userId} />
             </motion.div>
           ) : activeTab === 'scan' ? (
             <motion.div 

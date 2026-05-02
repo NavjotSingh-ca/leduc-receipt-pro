@@ -279,10 +279,11 @@ function AccessDeniedDashboard({ receipts }: { receipts: any[] }) {
 }
 
 export default function Dashboard({ onFilterClick, role = 'Owner', userId }: DashboardProps) {
-  const { data: summary, isLoading } = useQuery({
+  const { data: summary, isLoading, error } = useQuery({
     queryKey: ['dashboard_summary', role, userId],
     queryFn: () => getDashboardSummary(role, userId!),
     enabled: !!userId,
+    retry: false, // Don't spam if org is missing
   });
 
   if (isLoading) {
@@ -290,6 +291,25 @@ export default function Dashboard({ onFilterClick, role = 'Owner', userId }: Das
       <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
         <Loader2 className="h-8 w-8 animate-spin text-champagne" />
         <p className="text-sm text-text-secondary">Crunching your numbers...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    const isNoOrg = error instanceof Error && error.message.includes('No organization found');
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 text-center">
+        <div className="h-12 w-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400">
+          <AlertCircle className="h-6 w-6" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-text-primary">{isNoOrg ? 'Organization Setup Required' : 'Failed to Load Data'}</h3>
+          <p className="mt-2 max-w-sm text-sm text-text-secondary">
+            {isNoOrg 
+              ? 'You are not yet assigned to an organization. Please use an invite code or contact your administrator.' 
+              : 'There was an error connecting to the database. Please check your connection and try again.'}
+          </p>
+        </div>
       </div>
     );
   }

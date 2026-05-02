@@ -85,6 +85,7 @@ type HistoryProps = {
   activeFilter?: string;
   onUpdate?: () => Promise<void> | void;
   role?: UserRole;
+  userId?: string | null;
 };
 
 /* ─── Card entrance animation (float up) ─── */
@@ -104,10 +105,11 @@ const cardVariants = {
 };
 
 export default function History({
-  receipts: initialReceipts, // Prop is ignored, we fetch internally
+  receipts: initialReceipts,
   activeFilter = 'all',
   onUpdate,
   role = 'Owner',
+  userId,
 }: HistoryProps) {
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRow | null>(null);
   const [search, setSearch] = useState('');
@@ -116,13 +118,7 @@ export default function History({
   const [semanticResults, setSemanticResults] = useState<string[] | null>(null);
   const [semanticLoading, setSemanticLoading] = useState(false);
 
-  const [userId, setUserId] = useState<string | null>(null);
-
-  React.useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setUserId(data.session?.user?.id ?? null);
-    });
-  }, []);
+  // userId is now passed as a prop from page.tsx
 
   const {
     data: infiniteData,
