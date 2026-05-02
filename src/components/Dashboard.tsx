@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowRight,
   BadgeAlert,
