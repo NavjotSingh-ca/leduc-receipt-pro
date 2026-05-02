@@ -99,6 +99,51 @@ export async function getReceipts(role: UserRole, userId?: string, limit = 1000,
   return (data || []).map((row) => receiptSchema.parse(row) as ReceiptRow);
 }
 
+export async function getReceiptsPaginated(params: {
+  role: UserRole;
+  userId?: string;
+  limit?: number;
+  offset?: number;
+  category?: string;
+  fromDate?: string;
+  toDate?: string;
+  approvalStatus?: string;
+  search?: string;
+}): Promise<{ receipts: ReceiptRow[]; totalCount: number }> {
+  if (!params.userId) return { receipts: [], totalCount: 0 };
+
+  const { data: orgData } = await supabase.rpc('get_user_org');
+  const orgId = orgData as unknown as string;
+  if (!orgId) return { receipts: [], totalCount: 0 };
+
+  const { data, error } = await supabase.rpc('get_receipts_paginated', {
+    p_org_id: orgId,
+    p_user_id: params.userId,
+    p_role: params.role,
+    p_limit: params.limit || 25,
+    p_offset: params.offset || 0,
+    p_category: params.category || null,
+    p_from_date: params.fromDate || null,
+    p_to_date: params.toDate || null,
+    p_approval_status: params.approvalStatus || null,
+    p_search: params.search || null,
+  });
+
+  if (error) {
+    console.error('Error fetching paginated receipts:', error);
+    throw error;
+  }
+
+  // The RPC returns an array of rows: { receipt: JSON, total_count: bigint }
+  const rows = data as any[];
+  if (!rows || rows.length === 0) return { receipts: [], totalCount: 0 };
+
+  const totalCount = Number(rows[0].total_count);
+  const receipts = rows.map(r => receiptSchema.parse(r.receipt) as ReceiptRow);
+
+  return { receipts, totalCount };
+}
+
 export const getReceiptsPendingApproval = async (): Promise<ReceiptRow[]> => {
   const { data, error } = await supabase
     .from('receipts')
@@ -112,6 +157,84 @@ export const getReceiptsPendingApproval = async (): Promise<ReceiptRow[]> => {
     throw error;
   }
   return (data || []).map((row) => receiptSchema.parse(row) as ReceiptRow);
+};
+
+export interface DashboardSummary {
+  totalSpent: number;
+  gstRecoverable: number;
+  pstRecoverable: number;
+  receiptCount: number;
+  avgTransaction: number;
+  missingBNCount: number;
+  pendingReviewCount: number;
+  flaggedAuditCount: number;
+  spendingByCategory: { name: string; amount: number }[];
+  monthlyTrend: { month: string; amount: number }[];
+  reimbursementQueue: ReceiptRow[];
+}
+
+export const getDashboardSummary = async (role: UserRole, userId: string): Promise<DashboardSummary> => {
+  const { data: orgData } = await supabase.rpc('get_user_org');
+  const orgId = orgData as unknown as string;
+  if (!orgId) throw new Error('No organization found');
+
+  // 1. Fetch Core Stats via RPC
+  const { data: stats, error: statsError } = await supabase.rpc('get_dashboard_stats', { 
+    p_org_id: orgId,
+    p_user_id: userId,
+    p_role: role
+  });
+  if (statsError) throw statsError;
+  const mainStats = stats[0] || {};
+
+  // 2. Fetch Category Breakdown
+  let categoryQuery = supabase
+    .from('receipts')
+    .select('category, total_amount')
+    .eq('org_id', orgId)
+    .eq('is_deleted', false);
+  
+  if (role === 'Employee') categoryQuery = categoryQuery.eq('user_id', userId);
+  
+  const { data: categoryData } = await categoryQuery;
+  const categoryMap = new Map<string, number>();
+  (categoryData || []).forEach(r => {
+    const cat = r.category || 'Uncategorized';
+    categoryMap.set(cat, (categoryMap.get(cat) ?? 0) + Number(r.total_amount || 0));
+  });
+
+  const spendingByCategory = Array.from(categoryMap.entries())
+    .map(([name, amount]) => ({ name, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  // 3. Fetch Alert Counts
+  const { count: missingBN } = await supabase.from('receipts').select('*', { count: 'exact', head: true }).eq('org_id', orgId).eq('is_deleted', false).is('vendor_tax_number', null);
+  const { count: pendingReview } = await supabase.from('receipts').select('*', { count: 'exact', head: true }).eq('org_id', orgId).eq('is_deleted', false).eq('approval_status', 'submitted');
+  const { count: flaggedAudit } = await supabase.from('receipts').select('*', { count: 'exact', head: true }).eq('org_id', orgId).eq('is_deleted', false).eq('flagged_for_audit', true);
+
+  // 4. Fetch Reimbursement Queue
+  const { data: reimbursements } = await supabase
+    .from('receipts')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('is_deleted', false)
+    .eq('paid_by', 'employee_cash')
+    .eq('reimbursement_status', 'pending')
+    .limit(5);
+
+  return {
+    totalSpent: Number(mainStats.total_spent || 0),
+    gstRecoverable: Number(mainStats.gst_recoverable || 0),
+    pstRecoverable: Number(mainStats.pst_recoverable || 0),
+    receiptCount: Number(mainStats.receipt_count || 0),
+    avgTransaction: Number(mainStats.avg_transaction || 0),
+    missingBNCount: missingBN || 0,
+    pendingReviewCount: pendingReview || 0,
+    flaggedAuditCount: flaggedAudit || 0,
+    spendingByCategory,
+    monthlyTrend: [], 
+    reimbursementQueue: (reimbursements || []).map(r => receiptSchema.parse(r) as ReceiptRow),
+  };
 };
 
 export const getReimbursementsPending = async (userId: string): Promise<ReceiptRow[]> => {

@@ -7,10 +7,19 @@ import JSZip from 'jszip';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import confetti from 'canvas-confetti';
 
-import { scanReceipt, generateEmbedding } from '@/app/actions/scan-receipt';
+import { scanReceipt } from '@/app/actions/scan-receipt';
 import { generateDuplicateHash, generateIntegrityHash } from '@/lib/hash';
 import { supabase } from '@/lib/supabase';
 import { saveReceipt } from '@/lib/services/receipts';
+
+import { 
+  computeBlurScore, 
+  readFileAsDataUrl, 
+  resizeImage 
+} from './scanner/utils';
+import BatchOverlay from './scanner/BatchOverlay';
+import CaptureControls from './scanner/CaptureControls';
+import CameraEngine from './scanner/CameraEngine';
 
 import ManualCropper from './scanner/ManualCropper';
 import DuplicateModal from './scanner/DuplicateModal';
@@ -30,48 +39,7 @@ const MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.6;
 const STORAGE_BUCKET = 'receipt-images';
 const BATCH_LIMIT = 50;
-const BLUR_THRESHOLD = 40; // Laplacian variance — below this = blurry
-
-/** Laplacian variance blur detection via greyscale canvas convolution */
-async function computeBlurScore(dataUrl: string): Promise<number> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const size = 200;
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { resolve(999); return; }
-      ctx.drawImage(img, 0, 0, size, size);
-      const { data } = ctx.getImageData(0, 0, size, size);
-      // Convert to greyscale
-      const grey: number[] = [];
-      for (let i = 0; i < data.length; i += 4) {
-        grey.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-      }
-      // Laplacian kernel: [0,1,0,1,-4,1,0,1,0]
-      let sumSq = 0;
-      let count = 0;
-      for (let y = 1; y < size - 1; y++) {
-        for (let x = 1; x < size - 1; x++) {
-          const idx = y * size + x;
-          const lap =
-            grey[idx - size] +
-            grey[idx + size] +
-            grey[idx - 1] +
-            grey[idx + 1] -
-            4 * grey[idx];
-          sumSq += lap * lap;
-          count++;
-        }
-      }
-      resolve(count > 0 ? sumSq / count : 999);
-    };
-    img.onerror = () => resolve(999);
-    img.src = dataUrl;
-  });
-}
+const BLUR_THRESHOLD = 40;
 
 export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -92,23 +60,22 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const savingRef = useRef(false);
 
   const [showCropper, setShowCropper] = useState(false);
+  const [showCameraEngine, setShowCameraEngine] = useState(false);
   const [duplicateCandidate, setDuplicateCandidate] = useState<DuplicateCandidate>(null);
   const [pendingSave, setPendingSave] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
-  // Batch / JSZip Engine State
   const [batchQueue, setBatchQueue] = useState<File[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchProgress, setBatchProgress] = useState(0);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
 
-  // Blur detection state
   const [blurScore, setBlurScore] = useState<number | null>(null);
   const [showBlurWarning, setShowBlurWarning] = useState(false);
 
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sqlError, setSqlError] = useState<string | null>(null);
-  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const saveMutation = useMutation({
     mutationFn: async ({ bypassCheck, localFormData }: { bypassCheck: boolean, localFormData: ReceiptForm }) => {
@@ -133,7 +100,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       let imageUrl: string | null = null;
       let integrityHash = '';
 
-      // Upload image to Supabase Storage and compute hash
       if (imageSrc) {
         try {
           const response = await fetch(imageSrc);
@@ -153,23 +119,13 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
             imageUrl = urlData?.publicUrl ?? null;
           }
         } catch {
-          // Image upload is non-blocking — continue saving without image
+          // Image upload is non-blocking
         }
       }
 
       if (!integrityHash) {
-        // Fallback hash if no image
         integrityHash = await generateIntegrityHash(new TextEncoder().encode(JSON.stringify(localFormData)).buffer);
       }
-
-      const aiEmbedding = await generateEmbedding({
-        vendor_name: localFormData.vendor_name,
-        category: localFormData.category,
-        notes: localFormData.notes,
-        vendor_address: localFormData.vendor_address,
-        transaction_date: localFormData.transaction_date,
-        total_amount: localFormData.total_amount
-      });
 
       let payload = {
         ...localFormData,
@@ -177,7 +133,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         duplicate_hash: computedHash,
         duplicate_warning: bypassCheck && Boolean(duplicateCandidate),
         image_url: imageUrl,
-        semantic_embedding: aiEmbedding,
       } as Record<string, unknown>;
 
       await saveReceipt(payload, integrityHash, user.id);
@@ -266,50 +221,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
     if (cameraInputRef.current) cameraInputRef.current.value = '';
     if (galleryInputRef.current) galleryInputRef.current.value = '';
-  }
-
-  async function readFileAsDataUrl(file: File): Promise<string> {
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('Could not read file.'));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function loadImage(src: string): Promise<HTMLImageElement> {
-    return await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Could not load image.'));
-      img.src = src;
-    });
-  }
-
-  async function resizeTo2000px(dataUrl: string, outputMimeType = 'image/jpeg'): Promise<string> {
-    const img = await loadImage(dataUrl);
-
-    let { width, height } = img;
-    const longestSide = Math.max(width, height);
-
-    if (longestSide > MAX_DIMENSION) {
-      const scale = MAX_DIMENSION / longestSide;
-      width = Math.round(width * scale);
-      height = Math.round(height * scale);
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas is not available.');
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, 0, 0, width, height);
-
-    return canvas.toDataURL(outputMimeType, JPEG_QUALITY);
   }
 
   function mergeScanData(result: Record<string, unknown>) {
@@ -404,18 +315,16 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setShowBlurWarning(false);
 
       const rawDataUrl = await readFileAsDataUrl(file);
-      const resizedDataUrl = await resizeTo2000px(rawDataUrl, 'image/jpeg');
+      const resizedDataUrl = await resizeImage(rawDataUrl, MAX_DIMENSION, JPEG_QUALITY);
 
-      // Blur detection before showing cropper
       const score = await computeBlurScore(resizedDataUrl);
       setBlurScore(score);
 
       if (score < BLUR_THRESHOLD && !isBatchProcessing) {
         setShowBlurWarning(true);
-        setImageSrc(resizedDataUrl); // still set so user can see it
+        setImageSrc(resizedDataUrl); 
         setOriginalFileName(file.name);
         setMimeType(file.type || 'image/jpeg');
-        // Don't open cropper yet — let user decide
         return;
       }
 
@@ -437,12 +346,11 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
   async function onApplyCroppedImage(cropped: string) {
     try {
-      const resized = await resizeTo2000px(cropped, 'image/jpeg');
+      const resized = await resizeImage(cropped, MAX_DIMENSION, JPEG_QUALITY);
       setImageSrc(resized);
       setShowCropper(false);
       showNotice('info', 'AI Extraction starting...');
       
-      // Auto-trigger AI to fix the loop and advance state
       onProcessAI(resized);
     } catch (error) {
       showNotice('error', error instanceof Error ? error.message : 'Failed to apply crop.');
@@ -474,7 +382,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setHasAnalyzed(true);
       showNotice('success', 'Receipt processed successfully. Please review the details below.');
       
-      // Auto-scroll to form top
       setTimeout(() => {
         formContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
@@ -528,7 +435,7 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
     
     try {
       const rawDataUrl = await readFileAsDataUrl(nextFile);
-      const resized = await resizeTo2000px(rawDataUrl, 'image/jpeg');
+      const resized = await resizeImage(rawDataUrl, MAX_DIMENSION, JPEG_QUALITY);
       setImageSrc(resized);
       setOriginalFileName(nextFile.name);
       setMimeType(nextFile.type || 'image/jpeg');
@@ -591,9 +498,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
       setBatchTotal(processedFiles.length);
       setBatchProgress(1);
       setIsBatchProcessing(true);
-      setBatchQueue(processedFiles);
-      
-      const firstFile = processedFiles[0];
       setBatchQueue(processedFiles.slice(1));
       
       processNextBatchItem(processedFiles, processedFiles.length);
@@ -710,68 +614,17 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
         <div className="space-y-5 p-5">
           {!imageSrc ? (
-            <div className="rounded-3xl border border-dashed border-glass-border-hover bg-surface-raised p-8">
-              <div className="mx-auto flex max-w-md flex-col items-center text-center">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-champagne/10 text-champagne">
-                  <Camera className="h-8 w-8" />
-                </div>
-
-                <h3 className="text-base font-bold text-text-primary">Capture a receipt</h3>
-                <p className="mt-2 text-sm text-text-secondary">
-                  Images are resized to 1600px before AI processing for consistent OCR quality.
-                </p>
-
-                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <motion.button
-                    type="button"
-                    onClick={() => cameraInputRef.current?.click()}
-                    whileTap={{ scale: 0.92 }}
-                    whileHover={{ scale: 1.03 }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-champagne px-4 py-3 text-sm font-semibold text-obsidian shadow-lg shadow-champagne/20 transition hover:bg-champagne-dim"
-                  >
-                    <Camera className="h-4 w-4" />
-                    Camera
-                  </motion.button>
-
-                  <button
-                    type="button"
-                    onClick={() => galleryInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-4 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
-                  >
-                    <Upload className="h-4 w-4" />
-                    Upload
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => screenshotInputRef.current?.click()}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-glass-border bg-surface px-4 py-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-raised hover:text-text-primary"
-                  >
-                    <ScanLine className="h-4 w-4" />
-                    Screenshot
-                  </button>
-                </div>
-              </div>
-            </div>
+            <CaptureControls
+              onCameraClick={() => setShowCameraEngine(true)}
+              onUploadClick={() => galleryInputRef.current?.click()}
+              onScreenshotClick={() => screenshotInputRef.current?.click()}
+              batchLimit={BATCH_LIMIT}
+              maxDimension={MAX_DIMENSION}
+            />
           ) : (
             <>
               {isBatchProcessing && (
-                <div className="mb-4 overflow-hidden rounded-2xl border border-[#dfcaaa]/30 bg-obsidian shadow-[0_0_20px_rgba(190,169,142,0.1)]">
-                  <div className="relative px-5 py-3">
-                    <div className="flex items-center gap-3 relative z-10">
-                      <Layers className="h-5 w-5 animate-pulse text-champagne" />
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-champagne">GALAXY Extraction Engine Active</p>
-                        <p className="text-xs text-champagne/80">
-                          Processing {batchProgress} of {batchTotal}...
-                        </p>
-                      </div>
-                      <Loader2 className="h-4 w-4 animate-spin text-champagne" />
-                    </div>
-                    <div className="absolute top-0 left-0 h-full bg-champagne/10 transition-all duration-700 ease-in-out" style={{ width: `${(Math.max(1, batchProgress) / batchTotal) * 100}%` }} />
-                  </div>
-                </div>
+                <BatchOverlay progress={batchProgress} total={batchTotal} />
               )}
 
               {!showCropper && (
@@ -905,6 +758,17 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
               </button>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showCameraEngine && (
+          <CameraEngine 
+            onCapture={(file) => {
+              onCapture(file);
+              setShowCameraEngine(false);
+            }}
+            onClose={() => setShowCameraEngine(false)}
+          />
         )}
       </AnimatePresence>
     </div>

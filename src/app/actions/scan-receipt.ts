@@ -277,31 +277,7 @@ Return the corrected JSON only. Keep the same schema.`;
   }
 }
 
-// Optimize embedding by omitting boolean flags and empty strings
-export async function generateEmbedding(form: {
-  vendor_name: string; category: string; notes: string;
-  vendor_address?: string; transaction_date?: string; total_amount?: number;
-}): Promise<number[] | null> {
-  if (!process.env.GOOGLE_AI_KEY) return null;
-  try {
-    const text = [
-      form.vendor_name,
-      form.category,
-      form.notes,
-      form.vendor_address,
-      form.transaction_date,
-      form.total_amount ? `$${form.total_amount.toFixed(2)} CAD` : '',
-    ].filter(Boolean).join(' | ');
 
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_KEY);
-    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
-    const result = await model.embedContent(text);
-    return result.embedding.values;
-  } catch (err) {
-    console.error("Embedding error", err);
-    return null;
-  }
-}
 
 export async function scanReceipt(base64Image: string, captureSource: string = 'camera'): Promise<ScanReceiptResult> {
   if (!process.env.GOOGLE_AI_KEY) return { success: false, error: 'AI service not configured.' };

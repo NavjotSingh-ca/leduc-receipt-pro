@@ -14,11 +14,14 @@ import {
   ShieldAlert,
   TrendingUp,
   Wallet,
+  Loader2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { AreaChart, BarList, Card, Metric, Text } from '@tremor/react';
+import { useQuery } from '@tanstack/react-query';
 
 import type { ReceiptRow, UserRole } from '@/lib/types';
+import { getDashboardSummary } from '@/lib/services/receipts';
 import {
   toNumber,
   formatCurrency,
@@ -27,9 +30,9 @@ import {
 } from '@/lib/ui-utils';
 
 interface DashboardProps {
-  receipts: ReceiptRow[];
   onFilterClick: (filterType: string) => void;
   role?: UserRole;
+  userId?: string;
 }
 
 /* ─── Alberta Construction Taxonomy Colors ─── */
@@ -239,7 +242,7 @@ function AlertTile({
 
 /* ─── Access Denied Screen (Employee View) ─── */
 
-function AccessDeniedDashboard({ receipts }: { receipts: ReceiptRow[] }) {
+function AccessDeniedDashboard({ receipts }: { receipts: any[] }) {
   const totalScanned = receipts.length;
   const totalAmount = receipts.reduce((sum, r) => sum + toNumber(r.total_amount), 0);
   const gstTotal = receipts.reduce((sum, r) => sum + toNumber(r.tax_amount), 0);
@@ -275,103 +278,38 @@ function AccessDeniedDashboard({ receipts }: { receipts: ReceiptRow[] }) {
   );
 }
 
-export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: DashboardProps) {
+export default function Dashboard({ onFilterClick, role = 'Owner', userId }: DashboardProps) {
+  const { data: summary, isLoading } = useQuery({
+    queryKey: ['dashboard_summary', role, userId],
+    queryFn: () => getDashboardSummary(role, userId!),
+    enabled: !!userId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-champagne" />
+        <p className="text-sm text-text-secondary">Crunching your numbers...</p>
+      </div>
+    );
+  }
+
   const {
-    totalSpent,
-    gstRecoverable,
-    receiptCount,
-    avgTransaction,
-    spendingByCategory,
-    monthlyTrend,
-    missingBNCount,
-    pendingReviewCount,
-    flaggedAuditCount,
-    reimbursementQueue,
-  } = useMemo(() => {
-    const totalSpent = receipts.reduce((sum, r) => sum + toNumber(r.total_amount), 0);
-    const gstRecoverable = receipts.reduce((sum, r) => sum + toNumber(r.tax_amount), 0);
-    const pstRecoverable = receipts.reduce((sum, r) => sum + toNumber(r.pst_amount), 0);
-    const receiptCount = receipts.length;
-    const avgTransaction = receiptCount > 0 ? totalSpent / receiptCount : 0;
-
-    const categoryMap = new Map<string, number>();
-    const monthMap = new Map<string, number>();
-
-    let missingBNCount = 0;
-    let pendingReviewCount = 0;
-    let flaggedAuditCount = 0;
-    const reimbursementQueue: ReceiptRow[] = [];
-
-    for (const receipt of receipts) {
-      const category = String(receipt.category ?? 'Uncategorized').trim() || 'Uncategorized';
-      categoryMap.set(category, (categoryMap.get(category) ?? 0) + toNumber(receipt.total_amount));
-
-      const fullDate = String(receipt.transaction_date ?? '').trim();
-      if (fullDate.length >= 7) {
-        const monthKey = fullDate.slice(0, 7);
-        monthMap.set(monthKey, (monthMap.get(monthKey) ?? 0) + toNumber(receipt.total_amount));
-      }
-
-      const bn = String(receipt.vendor_tax_number ?? '').trim();
-      if (!bn || receipt.missing_bn_warning) {
-        missingBNCount += 1;
-      }
-
-      const reviewRaw = String(receipt.review_status ?? receipt.accountant_status ?? '').toLowerCase();
-      if (
-        receipt.needs_review ||
-        reviewRaw.includes('pending') ||
-        reviewRaw.includes('review')
-      ) {
-        pendingReviewCount += 1;
-      }
-
-      if (
-        receipt.flagged_for_audit ||
-        receipt.math_mismatch_warning ||
-        receipt.duplicate_warning ||
-        receipt.thermal_warning ||
-        (toNumber(receipt.cra_readiness_score) > 0 && toNumber(receipt.cra_readiness_score) < 70)
-      ) {
-        flaggedAuditCount += 1;
-      }
-
-      if (receipt.paid_by === 'employee_cash' && receipt.reimbursement_status === 'pending') {
-        reimbursementQueue.push(receipt);
-      }
-    }
-
-    const spendingByCategory = Array.from(categoryMap.entries())
-      .map(([name, amount]) => ({
-        name,
-        amount: Math.round(amount * 100) / 100,
-      }))
-      .sort((a, b) => b.amount - a.amount);
-
-    const monthlyTrend = Array.from(monthMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([month, amount]) => ({
-        month,
-        amount: Math.round(amount * 100) / 100,
-      }));
-
-    return {
-      totalSpent,
-      gstRecoverable,
-      receiptCount,
-      avgTransaction,
-      spendingByCategory,
-      monthlyTrend,
-      missingBNCount,
-      pendingReviewCount,
-      flaggedAuditCount,
-      pstRecoverable,
-      reimbursementQueue,
-    };
-  }, [receipts]);
+    totalSpent = 0,
+    gstRecoverable = 0,
+    receiptCount = 0,
+    avgTransaction = 0,
+    spendingByCategory = [],
+    monthlyTrend = [],
+    missingBNCount = 0,
+    pendingReviewCount = 0,
+    flaggedAuditCount = 0,
+    pstRecoverable = 0,
+    reimbursementQueue = [],
+  } = (summary as any) || {};
 
   return role === 'Employee' ? (
-    <AccessDeniedDashboard receipts={receipts} />
+    <AccessDeniedDashboard receipts={[]} />
   ) : (
     <section className="space-y-6 fade-in">
       <div className="flex items-end justify-between gap-3">
@@ -449,7 +387,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
           </div>
 
           <div className="space-y-2">
-            {reimbursementQueue.slice(0, 5).map((r) => (
+            {reimbursementQueue.slice(0, 5).map((r: ReceiptRow) => (
               <div key={r.id} className="flex items-center justify-between rounded-2xl border border-glass-border bg-surface px-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-text-primary">{r.vendor_name}</p>
@@ -484,7 +422,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
           ) : (
             <div className="mt-4 h-[280px] w-full overflow-y-auto sm:h-[320px]">
               <BarList
-                data={spendingByCategory.map(s => ({ name: s.name, value: s.amount }))}
+                data={spendingByCategory.map((s: { name: string; amount: number }) => ({ name: s.name, value: s.amount }))}
                 className="mt-2"
                 valueFormatter={(number: number) => currencyFormatter.format(number)}
                 showAnimation={true}
@@ -515,7 +453,7 @@ export default function Dashboard({ receipts, onFilterClick, role = 'Owner' }: D
             <div className="mt-4 h-[280px] w-full sm:h-[320px] dark">
               <AreaChart
                 className="mt-4 h-72"
-                data={monthlyTrend.map(t => ({ month: formatMonthLabel(t.month), amount: t.amount }))}
+                data={monthlyTrend.map((t: { month: string; amount: number }) => ({ month: formatMonthLabel(t.month), amount: t.amount }))}
                 index="month"
                 categories={['amount']}
                 colors={['amber']}

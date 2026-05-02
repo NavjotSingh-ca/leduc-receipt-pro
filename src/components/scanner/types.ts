@@ -160,6 +160,11 @@ export interface ScannerFormProps {
   hasAnalyzed?: boolean;
 }
 
+export interface CameraEngineProps {
+  onCapture: (file: File) => void;
+  onClose: () => void;
+}
+
 export interface ManualCropperProps {
   imageSrc: string;
   fileName: string;

@@ -513,6 +513,8 @@ function AppContent() {
         { event: '*', schema: 'public', table: 'receipts' },
         () => {
           queryClient.invalidateQueries({ queryKey: ['receipts'] });
+          queryClient.invalidateQueries({ queryKey: ['receipts_paginated'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard_summary'] });
         }
       )
       .subscribe();
@@ -682,7 +684,7 @@ function AppContent() {
               exit="exit"
               transition={tabTransition}
             >
-              <Dashboard receipts={receipts} onFilterClick={handleFilterClick} role={role} />
+              <Dashboard onFilterClick={handleFilterClick} role={role} userId={userId} />
             </motion.div>
           ) : activeTab === 'receipts' ? (
             <motion.div 

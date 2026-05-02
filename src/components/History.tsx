@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
+  ChevronDown,
   CreditCard,
   DollarSign,
   Edit3,
@@ -25,12 +26,13 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { semanticSearchAction } from '@/app/actions/semantic-search';
-import { updateReceiptApproval, updateReceiptNotes, deleteReceipt } from '@/lib/services/receipts';
+import { updateReceiptApproval, updateReceiptNotes, deleteReceipt, getReceiptsPaginated } from '@/lib/services/receipts';
 import { CATEGORIES } from '@/components/scanner/types';
 
 import type { ReceiptRow } from '@/lib/types';
 import type { UserRole } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import {
   toNumber,
   formatCurrency,
@@ -102,7 +104,7 @@ const cardVariants = {
 };
 
 export default function History({
-  receipts,
+  receipts: initialReceipts, // Prop is ignored, we fetch internally
   activeFilter = 'all',
   onUpdate,
   role = 'Owner',
@@ -114,10 +116,71 @@ export default function History({
   const [semanticResults, setSemanticResults] = useState<string[] | null>(null);
   const [semanticLoading, setSemanticLoading] = useState(false);
 
+  const [userId, setUserId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUserId(data.session?.user?.id ?? null);
+    });
+  }, []);
+
+  const {
+    data: infiniteData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    refetch
+  } = useInfiniteQuery({
+    initialPageParam: 0,
+    queryKey: ['receipts_paginated', role, userId, activeFilter, search, semanticResults],
+    queryFn: async ({ pageParam = 0 }) => {
+      if (!userId) return { receipts: [], totalCount: 0 };
+      
+      let approvalStatus: string | undefined = undefined;
+      let filterCategory: string | undefined = undefined;
+      
+      const normalizedFilter = activeFilter.toLowerCase();
+      if (normalizedFilter === 'approved') approvalStatus = 'approved';
+      else if (normalizedFilter === 'review' || normalizedFilter === 'pending-review') approvalStatus = 'submitted';
+      else if (normalizedFilter !== 'all' && normalizedFilter !== 'missing' && normalizedFilter !== 'missing-bn' && normalizedFilter !== 'flagged-audit' && normalizedFilter !== 'reimbursement') {
+        filterCategory = activeFilter;
+      }
+
+      // If semantic mode is active but we have no results yet, return empty
+      if (semanticMode && !semanticResults) return { receipts: [], totalCount: 0 };
+
+      return getReceiptsPaginated({
+        role,
+        userId,
+        limit: 25,
+        offset: pageParam,
+        category: filterCategory,
+        approvalStatus: approvalStatus,
+        search: search.trim() ? search.trim() : undefined,
+      });
+    },
+    getNextPageParam: (lastPage, pages) => {
+      if (lastPage.receipts.length < 25) return undefined;
+      return pages.length * 25;
+    },
+    enabled: !!userId,
+  });
+
+  const receipts = React.useMemo(() => {
+    if (!infiniteData) return [];
+    return infiniteData.pages.flatMap((page) => page.receipts);
+  }, [infiniteData]);
+
+  const totalCount = infiniteData?.pages[0]?.totalCount || 0;
+
   const filteredReceipts = useMemo(() => {
     let items = [...receipts];
     const normalizedFilter = activeFilter.toLowerCase();
 
+    // The RPC handles basic category and approval filtering, 
+    // but complex client filters (like 'missing-bn', 'flagged-audit') still need client-side filtering
+    // since we didn't push all those specific flags into the RPC yet.
     if (normalizedFilter !== 'all') {
       if (normalizedFilter === 'missing' || normalizedFilter === 'missing-bn') {
         items = items.filter(
@@ -127,10 +190,6 @@ export default function History({
             !String(r.transaction_date ?? '').trim() ||
             toNumber(r.total_amount) <= 0
         );
-      } else if (normalizedFilter === 'approved') {
-        items = items.filter((r) => r.approval_status === 'approved');
-      } else if (normalizedFilter === 'review' || normalizedFilter === 'pending-review') {
-        items = items.filter((r) => r.approval_status === 'submitted' || !r.approval_status);
       } else if (normalizedFilter === 'flagged-audit') {
         items = items.filter(
           (r) =>
@@ -142,37 +201,15 @@ export default function History({
         );
       } else if (normalizedFilter === 'reimbursement') {
         items = items.filter((r) => r.paid_by === 'employee_cash');
-      } else {
-        items = items.filter(
-          (r) => (r.category ?? 'Uncategorized').toLowerCase() === normalizedFilter
-        );
       }
     }
 
     if (semanticMode && semanticResults) {
       items = items.filter((r) => semanticResults.includes(r.id));
-    } else if (!semanticMode && search.trim()) {
-      const q = search.trim().toLowerCase();
-      items = items.filter((r) => {
-        const fields = [
-          r.vendor_name ?? '',
-          r.vendor_address ?? '',
-          r.vendor_tax_number ?? '',
-          r.transaction_date ?? '',
-          r.category ?? '',
-          r.notes ?? '',
-          r.payment_method ?? '',
-          r.card_last_four ?? '',
-          r.job_code ?? '',
-          r.vehicle_id ?? '',
-          r.id,
-        ];
-        return fields.some((value) => value.toLowerCase().includes(q));
-      });
     }
 
     return items;
-  }, [receipts, activeFilter, search, semanticMode, semanticResults]);
+  }, [receipts, activeFilter, semanticMode, semanticResults]);
 
   const handleSemanticSearch = async () => {
     if (!search.trim()) return;
@@ -192,10 +229,10 @@ export default function History({
   };
 
   const handleRefresh = async () => {
-    if (!onUpdate) return;
     try {
       setRefreshing(true);
-      await onUpdate();
+      await refetch();
+      if (onUpdate) await onUpdate();
     } finally {
       setRefreshing(false);
     }
@@ -391,6 +428,23 @@ export default function History({
                 </motion.button>
               );
             })}
+            
+            {hasNextPage && (
+              <button
+                type="button"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-glass-border bg-surface py-3 text-sm font-semibold text-champagne transition hover:bg-surface-raised disabled:opacity-50"
+              >
+                {isFetchingNextPage ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+                {isFetchingNextPage ? 'Loading more...' : 'Load More Receipts'}
+              </button>
+            )}
+            
           </div>
         )}
       </div>
@@ -515,6 +569,22 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
       setEditError(err instanceof Error ? err.message : 'Delete failed.');
     } finally {
       setDeleteLoading(false);
+    }
+  }
+
+  const [syncLoading, setSyncLoading] = useState<string | null>(null);
+
+  async function handleAccountingSync(provider: 'qbo' | 'xero') {
+    setSyncLoading(provider);
+    try {
+      const resp = await fetch(`/api/integrations/${provider}?action=sync&receiptId=${receipt.id}`, { method: 'POST' });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Sync failed');
+      alert(`Successfully synced to ${provider.toUpperCase()}`);
+    } catch (err: any) {
+      alert(`Sync Error: ${err.message}`);
+    } finally {
+      setSyncLoading(null);
     }
   }
 
@@ -643,11 +713,36 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
             )}
 
             {localApproval === 'approved' && (
-              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-emerald-300">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span className="font-semibold">Approved</span>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-emerald-300">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span className="font-semibold">Approved</span>
+                  </div>
                 </div>
+                
+                {role !== 'Employee' && (
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleAccountingSync('qbo')}
+                      disabled={!!syncLoading}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-glass-border bg-white px-3 py-2.5 text-xs font-bold text-black transition hover:bg-white/90 disabled:opacity-50"
+                    >
+                      {syncLoading === 'qbo' ? <Loader2 className="h-3 w-3 animate-spin" /> : <img src="https://upload.wikimedia.org/wikipedia/commons/2/23/QuickBooks_Logo.svg" alt="" className="h-3" />}
+                      Sync to QBO
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAccountingSync('xero')}
+                      disabled={!!syncLoading}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-glass-border bg-[#00b7e2] px-3 py-2.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {syncLoading === 'xero' ? <Loader2 className="h-3 w-3 animate-spin" /> : <img src="https://upload.wikimedia.org/wikipedia/commons/9/9f/Xero_software_logo.svg" alt="" className="h-3" />}
+                      Sync to Xero
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
