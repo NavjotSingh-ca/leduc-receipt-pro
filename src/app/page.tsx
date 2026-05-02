@@ -397,25 +397,23 @@ function AuditHUD({ receipts }: { receipts: ReceiptRow[] }) {
 
 function AppContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get('tab') as Tab | null;
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-
-  const [activeTab, setActiveTab] = useState<Tab>(tabParam || 'dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [activeFilter, setActiveFilter] = useState<string>('all');
-
-  useEffect(() => {
-    if (tabParam && tabParam !== activeTab) {
-      setActiveTab(tabParam);
-    }
-  }, [tabParam]);
 
   const setTabWithUrl = useCallback((tab: Tab) => {
     setActiveTab(tab);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', tab);
     window.history.pushState({ tab }, '', url);
+  }, []);
+
+  // Sync tab with URL on mount (Deferred to prevent suspension)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab') as Tab | null;
+    if (tab) setActiveTab(tab);
   }, []);
 
   // Listen for back button / popstate sync
@@ -954,8 +952,6 @@ function AppContent() {
 
 export default function Page() {
   return (
-    <Suspense fallback={<FullPageLoader />}>
-      <AppContent />
-    </Suspense>
+    <AppContent />
   );
 }
