@@ -407,12 +407,19 @@ function AuditHUD({ receipts }: { receipts: ReceiptRow[] }) {
 
 function AppContent() {
   const router = useRouter();
+  const [hasMounted, setHasMounted] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [activeFilter, setActiveFilter] = useState<string>('all');
 
+  // Standardize mount state
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
   const setTabWithUrl = useCallback((tab: Tab) => {
+    if (typeof window === 'undefined') return;
     setActiveTab(tab);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', tab);
@@ -421,15 +428,15 @@ function AppContent() {
 
   // Sync tab with URL on mount (SSR Safe)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!hasMounted || typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as Tab | null;
     if (tab) setActiveTab(tab);
-  }, []);
+  }, [hasMounted]);
 
   // Listen for back button / popstate sync
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!hasMounted || typeof window === 'undefined') return;
     const handlePopState = (event: PopStateEvent) => {
       const tabFromState = event.state?.tab as Tab | null;
       const tabFromUrl = new URLSearchParams(window.location.search).get('tab') as Tab | null;
@@ -438,7 +445,7 @@ function AppContent() {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [hasMounted]);
   const [roleOpen, setRoleOpen] = useState(false);
   const [role, setRole] = useState<UserRole>('Owner');
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -460,64 +467,51 @@ function AppContent() {
   }, [role, activeTab]);
 
   useEffect(() => {
-    let mounted = true;
+    if (!hasMounted) return;
 
-    // Use getUser() for better production reliability
+    let active = true;
+
+    // Direct getUser check
     supabase.auth.getUser().then(({ data, error: userError }) => {
-      if (!mounted) return;
-      if (userError) {
-        console.error('Auth error:', userError);
+      if (!active) return;
+      if (userError || !data.user) {
         setAuthLoading(false);
         return;
       }
       
-      const currentUser = data.user;
-      setUser(currentUser);
-      
-      if (currentUser) {
-        getUserRole(currentUser.id)
-          .then(r => { if (mounted) { setRole(r); setAuthLoading(false); } })
-          .catch(e => { 
-            console.error('Role check failed:', e); 
-            if (mounted) { setRole('Employee'); setAuthLoading(false); } 
-          });
-      } else {
-        setAuthLoading(false);
-      }
-    }).catch(e => {
-      console.error('Fatal auth boot error:', e);
-      if (mounted) setAuthLoading(false);
+      setUser(data.user);
+      getUserRole(data.user.id)
+        .then(r => { if (active) { setRole(r); setAuthLoading(false); } })
+        .catch(() => { if (active) { setRole('Employee'); setAuthLoading(false); } });
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
       const currentUser = session?.user ?? null;
       setUser(currentUser);
-      
       if (currentUser) {
         getUserRole(currentUser.id)
-          .then(r => { if (mounted) { setRole(r); setAuthLoading(false); } })
-          .catch(() => { if (mounted) { setRole('Employee'); setAuthLoading(false); } });
+          .then(r => { if (active) { setRole(r); setAuthLoading(false); } })
+          .catch(() => { if (active) { setRole('Employee'); setAuthLoading(false); } });
       } else {
         setAuthLoading(false);
       }
     });
 
     const safetyTimeout = setTimeout(() => {
-      if (mounted && authLoading) {
-        console.warn('Auth boot safety timeout reached.');
+      if (active && authLoading) {
         setAuthLoading(false);
       }
-    }, 5500);
+    }, 4500);
 
     return () => {
-      mounted = false;
+      active = false;
       subscription.unsubscribe();
       clearTimeout(safetyTimeout);
     };
-  }, []);
+  }, [hasMounted]);
+
+  if (!hasMounted) return <div className="min-h-screen bg-obsidian" />;
 
   const userId = user?.id;
 
