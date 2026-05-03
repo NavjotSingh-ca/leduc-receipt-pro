@@ -88,6 +88,16 @@ function FullPageLoader() {
         </div>
         <Loader2 className="h-6 w-6 animate-spin text-champagne" />
         <p className="text-sm font-medium text-text-secondary">Loading 9 Star Labs…</p>
+        
+        {/* Diagnostic Emergency Exit */}
+        <div className="mt-8 animate-in fade-in duration-1000 delay-5000">
+          <button 
+            onClick={() => window.location.reload()}
+            className="text-xs text-text-muted hover:text-champagne underline underline-offset-4"
+          >
+            Taking too long? Click to retry
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -409,8 +419,9 @@ function AppContent() {
     window.history.pushState({ tab }, '', url);
   }, []);
 
-  // Sync tab with URL on mount (Deferred to prevent suspension)
+  // Sync tab with URL on mount (SSR Safe)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as Tab | null;
     if (tab) setActiveTab(tab);
@@ -418,6 +429,7 @@ function AppContent() {
 
   // Listen for back button / popstate sync
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const handlePopState = (event: PopStateEvent) => {
       const tabFromState = event.state?.tab as Tab | null;
       const tabFromUrl = new URLSearchParams(window.location.search).get('tab') as Tab | null;
@@ -436,7 +448,7 @@ function AppContent() {
     window.setTimeout(() => setToast(null), 3500);
   }, []);
 
-  /* ─── Role-aware tab enforcement (DOM removal for Employee) ─── */
+/* ─── Role-aware tab enforcement (DOM removal for Employee) ─── */
   useEffect(() => {
     if (role === 'Employee') {
       // Physically force to allowed tabs only
@@ -450,27 +462,30 @@ function AppContent() {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data, error: sessionError }) => {
+    // Use getUser() for better production reliability
+    supabase.auth.getUser().then(({ data, error: userError }) => {
       if (!mounted) return;
-      if (sessionError) {
-        console.error('Session error:', sessionError);
+      if (userError) {
+        console.error('Auth error:', userError);
         setAuthLoading(false);
         return;
       }
       
-      setUser(data.session?.user ?? null);
-      if (data.session?.user) {
-        getUserRole(data.session.user.id)
+      const currentUser = data.user;
+      setUser(currentUser);
+      
+      if (currentUser) {
+        getUserRole(currentUser.id)
           .then(r => { if (mounted) { setRole(r); setAuthLoading(false); } })
           .catch(e => { 
-            console.error('Role error:', e); 
+            console.error('Role check failed:', e); 
             if (mounted) { setRole('Employee'); setAuthLoading(false); } 
           });
       } else {
         setAuthLoading(false);
       }
     }).catch(e => {
-      console.error('Auth boot error:', e);
+      console.error('Fatal auth boot error:', e);
       if (mounted) setAuthLoading(false);
     });
 
@@ -478,9 +493,11 @@ function AppContent() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        getUserRole(session.user.id)
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      
+      if (currentUser) {
+        getUserRole(currentUser.id)
           .then(r => { if (mounted) { setRole(r); setAuthLoading(false); } })
           .catch(() => { if (mounted) { setRole('Employee'); setAuthLoading(false); } });
       } else {
@@ -488,13 +505,12 @@ function AppContent() {
       }
     });
 
-    // Safety Timeout: Force stop loading after 6s if Supabase/DB is hanging
     const safetyTimeout = setTimeout(() => {
       if (mounted && authLoading) {
-        console.warn('Auth boot timed out. Forcing UI load.');
+        console.warn('Auth boot safety timeout reached.');
         setAuthLoading(false);
       }
-    }, 6000);
+    }, 5500);
 
     return () => {
       mounted = false;
