@@ -428,7 +428,7 @@ function AppContent() {
 
   // Sync tab with URL on mount (SSR Safe)
   useEffect(() => {
-    if (!hasMounted || typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab') as Tab | null;
     if (tab) setActiveTab(tab);
@@ -511,7 +511,7 @@ function AppContent() {
     };
   }, [hasMounted]);
 
-  if (!hasMounted) return <div className="min-h-screen bg-obsidian" />;
+  if (authLoading || !hasMounted) return <FullPageLoader />;
 
   const userId = user?.id;
 
@@ -962,6 +962,8 @@ function AppContent() {
 
 export default function Page() {
   return (
-    <AppContent />
+    <Suspense fallback={<FullPageLoader />}>
+      <AppContent />
+    </Suspense>
   );
 }
