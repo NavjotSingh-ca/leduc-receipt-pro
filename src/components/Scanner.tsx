@@ -113,10 +113,14 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
             .upload(filePath, blob, { contentType: 'image/jpeg' });
 
           if (!uploadError) {
-            const { data: urlData } = supabase.storage
+            // Generate signed URL valid for 1 hour
+            const { data, error: signError } = await supabase.storage
               .from(STORAGE_BUCKET)
-              .getPublicUrl(filePath);
-            imageUrl = urlData?.publicUrl ?? null;
+              .createSignedUrl(filePath, 3600); // 3600 seconds = 1 hour
+            
+            if (!signError && data) {
+              imageUrl = data.signedUrl;
+            }
           }
         } catch {
           // Image upload is non-blocking

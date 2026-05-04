@@ -584,7 +584,35 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
     }
   }
 
-  const imageUrl = receipt.image_url ?? '';
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    async function getFreshUrl() {
+      if (!receipt.image_url) return;
+      
+      let path = receipt.image_url;
+      // If it's a full URL, extract the path part
+      if (path.includes('/storage/v1/object/')) {
+        // Supabase URL format: .../object/[public|sign]/[bucket]/[path]
+        const urlObj = new URL(path);
+        const pathParts = urlObj.pathname.split('/');
+        // pathParts: ["", "storage", "v1", "object", "sign", "receipt-images", "user-id", "file.jpg"]
+        const bucketIndex = pathParts.indexOf('receipt-images');
+        if (bucketIndex !== -1) {
+          path = pathParts.slice(bucketIndex + 1).join('/');
+        }
+      }
+
+      const { data } = await supabase.storage
+        .from('receipt-images')
+        .createSignedUrl(path, 3600);
+      
+      if (data) setDisplayUrl(data.signedUrl);
+    }
+    getFreshUrl();
+  }, [receipt.image_url]);
+
+  const imageUrl = displayUrl ?? '';
   const integrityHash = receipt.integrity_hash ?? '';
 
   return (

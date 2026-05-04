@@ -278,9 +278,15 @@ export const getAuditLogs = async (limit = 50) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
+  // Get user's org
+  const { data: orgData } = await supabase.rpc('get_user_org');
+  const orgId = orgData as unknown as string;
+  if (!orgId) return [];
+
   const { data, error } = await supabase
     .from('audit_logs')
     .select('*')
+    .eq('org_id', orgId)  // ← ADD THIS LINE
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {

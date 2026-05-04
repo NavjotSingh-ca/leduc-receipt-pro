@@ -28,7 +28,7 @@ serve(async (req) => {
     // Update the receipt record with the embedding
     const { error } = await supabase
       .from('receipts')
-      .update({ embedding })
+      .update({ semantic_embedding: embedding })
       .eq('id', receipt.id);
 
     if (error) throw error;

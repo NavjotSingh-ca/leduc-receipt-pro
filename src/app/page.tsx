@@ -137,13 +137,26 @@ function AuthScreen() {
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        // Redeem invite code if provided
+        
         if (inviteCode.trim() && data.user) {
+          // Existing invite code redemption...
           const result = await redeemAccessCode(inviteCode.trim(), data.user.id);
           if (result.success) {
             showToast('success', `Account created. Role assigned: ${result.role}. Check email to confirm.`);
           } else {
             showToast('info', `Account created but invite code invalid: ${result.error ?? 'expired'}. Check email.`);
+          }
+        } else if (data.user) {
+          // NEW: Bootstrap first user org for sign-ups without invite
+          try {
+            await supabase.rpc('bootstrap_first_user_org', {
+              p_user_id: data.user.id,
+              p_org_name: 'My Business',
+            });
+            showToast('success', 'Account created. Please check your email to confirm.');
+          } catch (err: any) {
+            console.error('Failed to create organization:', err);
+            showToast('warning', 'Account created but organization setup failed. Please contact support.');
           }
         } else {
           showToast('success', 'Account created. Please check your email to confirm.');
@@ -511,8 +524,6 @@ function AppContent() {
     };
   }, [hasMounted]);
 
-  if (authLoading || !hasMounted) return <FullPageLoader />;
-
   const userId = user?.id;
 
   const { data: receipts = [], isLoading: receiptsLoading, refetch: fetchReceipts } = useQuery({
@@ -556,6 +567,8 @@ function AppContent() {
       supabase.removeChannel(channel);
     };
   }, [userId, queryClient]);
+
+  if (authLoading || !hasMounted) return <FullPageLoader />;
 
   const handleFilterClick = useCallback((filter: string) => {
     setActiveFilter(filter);
