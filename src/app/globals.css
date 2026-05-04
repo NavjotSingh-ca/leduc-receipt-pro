@@ -6,18 +6,18 @@
   /* ─── Light Mode (Default) ─── */
   --obsidian: #fcfcfc;
   --surface: #ffffff;
-  --surface-raised: #f3f4f6;
-  --surface-hover: #e5e7eb;
+  --surface-raised: #f9fafb;
+  --surface-hover: #f3f4f6;
   --champagne: #8b7355;
   --champagne-dim: #6b5a45;
   --champagne-glow: rgba(139, 115, 85, 0.08);
   --emerald-success: #0d4c3c;
   --emerald-light: #10b981;
-  --glass-border: rgba(0, 0, 0, 0.08);
-  --glass-border-hover: rgba(0, 0, 0, 0.14);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-border-hover: rgba(0, 0, 0, 0.1);
   --text-primary: #111827;
   --text-secondary: #4b5563;
-  --text-muted: #6b7280;
+  --text-muted: #9ca3af;
   --danger: #ef4444;
   --warning: #f59e0b;
   --info: #3b82f6;

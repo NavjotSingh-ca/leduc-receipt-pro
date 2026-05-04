@@ -5,6 +5,7 @@ import { AlertCircle, Camera, Loader2, RefreshCw, ScanLine, Upload, Layers } fro
 import { motion, AnimatePresence } from 'framer-motion';
 import JSZip from 'jszip';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 
 import { scanReceipt } from '@/app/actions/scan-receipt';
@@ -73,7 +74,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
   const [blurScore, setBlurScore] = useState<number | null>(null);
   const [showBlurWarning, setShowBlurWarning] = useState(false);
 
-  const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const noticeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -154,11 +154,13 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
           particleCount: 150,
           spread: 80,
           origin: { y: 0.6 },
-          colors: ['#dfcaaa', '#be9e71', '#10b981', '#3b82f6']
+          colors: ['#bea98e', '#10b981', '#3b82f6'],
+          ticks: 200,
+          gravity: 1.2
         });
         resetScanner();
         onSaveSuccess();
-        showNotice('success', 'Receipt saved successfully.');
+        toast.success('Receipt saved successfully.');
       } else {
         setImageSrc(null);
         setFormData(createBlankReceiptForm());
@@ -204,10 +206,10 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
 
   const canProcess = useMemo(() => Boolean(imageSrc) && !processingAI, [imageSrc, processingAI]);
 
-  function showNotice(tone: NoticeTone, message: string) {
-    setNotice({ tone, message });
-    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
-    noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
+  function showNotice(tone: 'success' | 'error' | 'info', message: string) {
+    if (tone === 'success') toast.success(message);
+    else if (tone === 'error') toast.error(message);
+    else toast.info(message);
   }
 
   function resetScanner() {
@@ -550,23 +552,6 @@ export default function Scanner({ user, onSaveSuccess }: ScannerProps) {
         }}
       />
 
-      {notice && (
-        <div
-          className={[
-            'flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm shadow-sm backdrop-blur-xl',
-            notice.tone === 'success' && 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300',
-            notice.tone === 'error' && 'border-red-500/20 bg-red-500/[0.06] text-red-300',
-            notice.tone === 'info' && 'border-blue-500/20 bg-blue-500/[0.06] text-blue-300',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <span>{notice.message}</span>
-        </div>
-      )}
-
-      {/* Blur Warning Banner */}
       <AnimatePresence>
         {showBlurWarning && (
           <motion.div

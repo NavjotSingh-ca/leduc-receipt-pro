@@ -179,18 +179,18 @@ export default function ScannerForm({
   const canSave = hasAnalyzed && isConfirmed && !saving;
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col">
+    <div className="w-full min-h-screen bg-obsidian flex flex-col">
       {/* Image preview/upload area - passed via props or handled in parent */}
       
       <form onSubmit={handleSubmit(performSave)} className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b bg-gray-50">
+        <div className="p-4 border-b bg-surface-raised">
           <h3 className="text-lg font-bold text-gray-900">Review Data</h3>
           <p className="text-sm text-gray-500">Verify extracted details.</p>
         </div>
 
         {/* Form fields - scrollable */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-white">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-surface">
 
       {/* Warnings & Live Policy Guardrails */}
       <div className="space-y-3">
@@ -614,7 +614,7 @@ export default function ScannerForm({
     </div>
 
         {/* Buttons - sticky at bottom */}
-        <div className="sticky bottom-0 bg-white border-t p-4 space-y-3 z-20">
+        <div className="sticky bottom-0 bg-surface border-t p-4 space-y-3 z-20">
           {!isMathValid && hasAnalyzed && (
             <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-red-600 border border-red-100">
               <AlertTriangle className="h-4 w-4" />

@@ -143,9 +143,13 @@ function StatCard({
   className?: string;
   trend?: { value: string, up: boolean } | null;
 }) {
-  return (
-    <Card className={`rounded-[2rem] border border-glass-border bg-surface shadow-sm transition-all duration-300 hover:border-champagne/30 hover:bg-surface-raised !ring-0 relative overflow-hidden group ${className}`}>
-      <div className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-champagne/5 blur-3xl transition-all group-hover:bg-champagne/10" />
+    <motion.div
+      whileHover={{ y: -4, scale: 1.01 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+      className="h-full"
+    >
+      <Card className={`rounded-[2rem] border border-glass-border bg-surface shadow-sm transition-all duration-300 hover:border-champagne/30 hover:bg-surface-raised !ring-0 relative overflow-hidden group h-full ${className}`}>
+        <div className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-champagne/5 blur-3xl transition-all group-hover:bg-champagne/10" />
       
       <div className="relative z-10 flex flex-col h-full justify-between">
         <div className="flex items-center justify-between">
@@ -167,8 +171,8 @@ function StatCard({
             <p className="text-xs font-medium text-text-secondary">{helper}</p>
           </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </motion.div>
   );
 }
 
@@ -471,7 +475,7 @@ export default function Dashboard({ onFilterClick, role = 'Owner', userId }: Das
               </div>
             </div>
           ) : (
-            <div className="mt-4 h-[280px] w-full sm:h-[320px] dark">
+            <div className="mt-4 h-[280px] w-full sm:h-[320px]">
               <AreaChart
                 className="mt-4 h-72"
                 data={monthlyTrend.map((t: { month: string; amount: number }) => ({ month: formatMonthLabel(t.month), amount: t.amount }))}

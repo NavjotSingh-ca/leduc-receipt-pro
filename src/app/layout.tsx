@@ -36,6 +36,8 @@ export const viewport: Viewport = {
   themeColor: '#0c0c0c',
 };
 
+import { Toaster } from 'sonner';
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -50,6 +52,7 @@ export default function RootLayout({
         <SmoothScroll>
           <Providers>
             {children}
+            <Toaster position="top-center" richColors />
           </Providers>
         </SmoothScroll>
       </body>

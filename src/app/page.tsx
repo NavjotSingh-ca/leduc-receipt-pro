@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   Camera,
@@ -48,11 +49,6 @@ import type { User } from '@supabase/supabase-js';
 import { getReceipts, getBusinessUnits, getAuditLogs, redeemAccessCode } from '@/lib/services/receipts';
 import { getUserRole } from '@/lib/services/roles';
 type Tab = 'dashboard' | 'receipts' | 'scan' | 'export' | 'audit' | 'reconcile' | 'approvals' | 'payables' | 'projects' | 'more';
-
-type ToastState = {
-  type: 'success' | 'error' | 'info';
-  msg: string;
-};
 
 /* ─── Helpers ─── */
 
@@ -113,11 +109,11 @@ function AuthScreen() {
   const [inviteCode, setInviteCode] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<ToastState | null>(null);
 
-  const showToast = (type: ToastState['type'], msg: string) => {
-    setToast({ type, msg });
-    window.setTimeout(() => setToast(null), 4200);
+  const showToast = (type: 'success' | 'error' | 'info', msg: string) => {
+    if (type === 'success') toast.success(msg);
+    else if (type === 'error') toast.error(msg);
+    else toast.info(msg);
   };
 
   const handleSubmit = async () => {
@@ -182,25 +178,6 @@ function AuthScreen() {
 
   return (
     <AuroraBackground>
-      {toast && (
-        <div
-          className={`fixed left-1/2 top-6 z-50 flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl ${
-            toast.type === 'error'
-              ? 'bg-red-500/90'
-              : toast.type === 'info'
-              ? 'bg-blue-500/90'
-              : 'bg-emerald-600/90'
-          } backdrop-blur-xl`}
-        >
-          {toast.type === 'error' ? (
-            <AlertCircle className="h-4 w-4" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4" />
-          )}
-          <span>{toast.msg}</span>
-        </div>
-      )}
-
       <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-4 py-10 z-10">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
@@ -462,12 +439,12 @@ function AppContent() {
   }, [hasMounted]);
   const [roleOpen, setRoleOpen] = useState(false);
   const [role, setRole] = useState<UserRole>('Owner');
-  const [toast, setToast] = useState<ToastState | null>(null);
 
-  const showToast = useCallback((type: ToastState['type'], msg: string) => {
-    setToast({ type, msg });
-    window.setTimeout(() => setToast(null), 3500);
-  }, []);
+  const showToast = (type: 'success' | 'error' | 'info', msg: string) => {
+    if (type === 'success') toast.success(msg);
+    else if (type === 'error') toast.error(msg);
+    else toast.info(msg);
+  };
 
 /* ─── Role-aware tab enforcement (DOM removal for Employee) ─── */
   useEffect(() => {
@@ -639,32 +616,7 @@ function AppContent() {
   ];
 
   return (
-    <div className="min-h-screen w-full bg-white flex flex-col overflow-hidden text-text-primary">
-      {/* Toast */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-            className={`fixed left-1/2 top-4 z-[80] flex w-[92%] max-w-sm -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-2xl backdrop-blur-xl ${
-              toast.type === 'error'
-                ? 'bg-red-500/90'
-                : toast.type === 'info'
-                ? 'bg-blue-500/90'
-                : 'bg-emerald-600/90'
-            }`}
-          >
-            {toast.type === 'error' ? (
-              <AlertCircle className="h-4 w-4" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            <span>{toast.msg}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="min-h-screen w-full bg-obsidian flex flex-col overflow-hidden text-text-primary">
 
       {/* Header */}
       <header className="fixed inset-x-0 top-0 z-50 liquid-glass">
