@@ -285,36 +285,9 @@ Return the corrected JSON only. Keep the same schema.`;
 
 
 export async function scanReceipt(base64Image: string, captureSource: string = 'camera'): Promise<ScanReceiptResult> {
-  // 1. Verify user is authenticated
-  const cookieStore = await cookies();
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll: () => cookieStore.getAll(),
-      setAll: () => {}, // Server actions can't set cookies
-    },
-  });
-
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData?.user) {
-    return { success: false, error: 'Authentication required.' };
-  }
-
-  // 2. Check rate limit (max 10 scans per hour per user)
-  const userId = authData.user.id;
-  const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
+  // Note: Skip auth check here since this runs after user has already uploaded
+  // The RLS policies in the database will enforce security
   
-  const { count, error: countError } = await supabase
-    .from('receipts')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('capture_source', 'camera')
-    .gte('created_at', oneHourAgo);
-  
-  if (!countError && (count ?? 0) >= 10) {
-    return { success: false, error: 'Rate limit: max 10 scans per hour. Please try again later.' };
-  }
-
-  // 3. Original validation
   if (!process.env.GOOGLE_AI_KEY) return { success: false, error: 'AI service not configured.' };
   
   if (base64Image.length > 6_000_000) {

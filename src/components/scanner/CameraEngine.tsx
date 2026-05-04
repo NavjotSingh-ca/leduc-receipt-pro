@@ -20,32 +20,35 @@ export default function CameraEngine({ onCapture, onClose }: CameraEngineProps) 
         setIsStarting(true);
         setError(null);
         
-        const constraints: MediaStreamConstraints = {
+        // Request full device camera with highest quality
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: 'environment',
-            width: { ideal: 4096 },
-            height: { ideal: 2160 },
+            facingMode: 'environment', // Back camera on mobile
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            aspectRatio: { ideal: 4 / 3 }
           },
           audio: false
-        };
-
-        const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        });
         
         if (videoRef.current) {
-          videoRef.current.srcObject = newStream;
+          videoRef.current.srcObject = stream;
+          // Force full resolution playback
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(err => console.error('Video play error:', err));
+          };
         }
-        
-        setStream(newStream);
+        setStream(stream);
 
         // Check for flash support (torch)
-        const track = newStream.getVideoTracks()[0];
+        const track = stream.getVideoTracks()[0];
         const capabilities = track.getCapabilities() as any;
         if (capabilities.torch) {
           setHasFlash(true);
         }
       } catch (err) {
         console.error('Camera access error:', err);
-        setError('Could not access camera. Please check permissions.');
+        setError('Camera access denied. Please check permissions.');
       } finally {
         setIsStarting(false);
       }
@@ -101,42 +104,30 @@ export default function CameraEngine({ onCapture, onClose }: CameraEngineProps) 
   };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[200] flex flex-col bg-black"
-    >
-      {/* Top Bar */}
-      <div className="flex items-center justify-between p-4 relative z-10">
-        <button 
+    <div className="fixed inset-0 bg-black z-[200] flex flex-col">
+      {/* Header with close button */}
+      <div className="bg-black text-white p-4 flex justify-between items-center border-b border-white/10">
+        <h2 className="text-lg font-semibold">Take Photo</h2>
+        <button
           onClick={onClose}
-          className="p-2 rounded-full bg-black/40 text-white backdrop-blur-md transition hover:bg-black/60"
+          className="text-2xl leading-none hover:text-gray-300"
+          aria-label="Close camera"
         >
-          <X className="h-6 w-6" />
+          ✕
         </button>
-        
-        {hasFlash && (
-          <button 
-            onClick={toggleFlash}
-            className={`p-2 rounded-full backdrop-blur-md transition ${isFlashOn ? 'bg-champagne text-obsidian' : 'bg-black/40 text-white'}`}
-          >
-            {isFlashOn ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
-          </button>
-        )}
       </div>
 
-      {/* Video Feed Container */}
-      <div className="flex-1 relative overflow-hidden flex items-center justify-center">
+      {/* Camera Area */}
+      <div className="flex-1 flex flex-col items-center justify-center bg-black overflow-hidden relative">
         {isStarting && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60 z-10">
             <RefreshCcw className="h-10 w-10 animate-spin mb-4" />
-            <p className="text-sm font-medium">Initializing High-Res Lens...</p>
+            <p className="text-sm font-medium">Initializing Lens...</p>
           </div>
         )}
-        
+
         {error ? (
-          <div className="p-8 text-center text-white">
+          <div className="p-8 text-center text-white z-10">
             <p className="text-red-400 mb-4">{error}</p>
             <button 
               onClick={onClose}
@@ -146,51 +137,33 @@ export default function CameraEngine({ onCapture, onClose }: CameraEngineProps) 
             </button>
           </div>
         ) : (
-          <video 
+          <video
             ref={videoRef}
-            autoPlay
+            className="w-full h-full object-cover"
             playsInline
+            autoPlay
             muted
-            className="h-full w-full object-cover"
           />
         )}
-        
-        {/* Overlay Guides */}
-        <div className="absolute inset-0 pointer-events-none border-[40px] border-black/40 sm:border-[80px]">
-          <div className="h-full w-full border-2 border-white/20 rounded-2xl relative">
-             {/* Corner brackets */}
-             <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-champagne rounded-tl-lg" />
-             <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-champagne rounded-tr-lg" />
-             <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-champagne rounded-bl-lg" />
-             <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-champagne rounded-br-lg" />
-          </div>
-        </div>
       </div>
 
-      {/* Bottom Controls */}
-      <div className="p-8 flex items-center justify-center gap-12 bg-gradient-to-t from-black to-transparent">
-        <div className="w-12 h-12" /> {/* Spacer */}
-        
-        <button 
+      {/* Controls - at bottom */}
+      <div className="bg-black text-white p-8 flex gap-4 justify-center flex-wrap border-t border-white/10">
+        <button
           onClick={takePhoto}
           disabled={isStarting || !!error}
-          className="relative group p-1"
+          className="bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-full flex-1 min-w-max text-sm font-bold uppercase tracking-widest transition-all active:scale-95"
         >
-          <div className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center transition group-active:scale-90">
-             <div className="h-16 w-16 rounded-full bg-white transition group-hover:scale-95" />
-          </div>
-          {/* Subtle outer ring animation */}
-          <motion.div 
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="absolute inset-0 border-2 border-champagne/30 rounded-full pointer-events-none"
-          />
+          Capture
         </button>
-
-        <div className="w-12 h-12" /> {/* Spacer */}
+        <button
+          onClick={onClose}
+          className="bg-gray-800 hover:bg-gray-700 px-8 py-3 rounded-full flex-1 min-w-max text-sm font-bold uppercase tracking-widest transition-all"
+        >
+          Cancel
+        </button>
       </div>
-
       <canvas ref={canvasRef} className="hidden" />
-    </motion.div>
+    </div>
   );
 }

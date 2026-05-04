@@ -179,14 +179,18 @@ export default function ScannerForm({
   const canSave = hasAnalyzed && isConfirmed && !saving;
 
   return (
-    <form onSubmit={handleSubmit(performSave)} className="space-y-5 fade-in">
-      {/* Header */}
-      <div className="rounded-3xl border border-glass-border bg-surface px-5 py-4 shadow-sm">
-        <h3 className="text-base font-bold text-text-primary">Review extracted data</h3>
-        <p className="mt-1 text-sm text-text-secondary">
-          Verify OCR results and complete any missing CRA-relevant fields.
-        </p>
-      </div>
+    <div className="w-full min-h-screen bg-white flex flex-col">
+      {/* Image preview/upload area - passed via props or handled in parent */}
+      
+      <form onSubmit={handleSubmit(performSave)} className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b bg-gray-50">
+          <h3 className="text-lg font-bold text-gray-900">Review Data</h3>
+          <p className="text-sm text-gray-500">Verify extracted details.</p>
+        </div>
+
+        {/* Form fields - scrollable */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-white">
 
       {/* Warnings & Live Policy Guardrails */}
       <div className="space-y-3">
@@ -604,60 +608,49 @@ export default function ScannerForm({
                 />
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </div>        </div>
 
-      {/* Confirmation & Save */}
-      {/* Confirmation & Save (Fixed Bottom Bar) */}
-      <div className="fixed bottom-0 left-0 right-0 z-[100] border-t border-glass-border bg-obsidian/90 p-4 pb-safe-bottom backdrop-blur-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] sm:p-6 sm:rounded-t-[3rem]">
-        <div className="mx-auto max-w-2xl space-y-4">
+        {/* Buttons - sticky at bottom */}
+        <div className="sticky bottom-0 bg-white border-t p-4 space-y-3 z-20">
           {!isMathValid && hasAnalyzed && (
-            <div className="flex items-center gap-2 rounded-2xl bg-red-500/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-red-400 border border-red-500/20 shadow-lg shadow-red-500/5">
+            <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-red-600 border border-red-100">
               <AlertTriangle className="h-4 w-4" />
-              Math Discrepancy: Please Review
+              Math Discrepancy
             </div>
           )}
-          
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+
+          <div className="flex flex-col gap-3">
             <button 
               type="button" 
               onClick={() => setIsConfirmed((v) => !v)} 
-              className={['flex flex-1 items-center gap-4 rounded-[1.5rem] border p-3.5 text-left transition duration-300', isConfirmed ? 'border-champagne/40 bg-champagne/[0.08] shadow-[0_0_20px_rgba(190,169,142,0.1)]' : 'border-glass-border bg-surface-raised hover:border-glass-border-hover'].join(' ')}
+              className={`flex items-center gap-3 rounded-xl border p-4 text-left transition ${
+                isConfirmed ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50'
+              }`}
             >
-              <div className={['flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-all duration-300', isConfirmed ? 'border-champagne bg-champagne text-obsidian scale-110' : 'border-text-muted bg-surface'].join(' ')}>
+              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-all ${
+                isConfirmed ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white'
+              }`}>
                 {isConfirmed && <CheckCircle2 className="h-4 w-4" />}
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-text-primary leading-none">Confirm Accuracy</p>
-                <p className="mt-1 text-[9px] uppercase tracking-widest text-text-muted">CRA Compliance Lock</p>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Confirm Accuracy</p>
+                <p className="text-[10px] uppercase tracking-widest text-gray-500">CRA Compliance Lock</p>
               </div>
             </button>
 
             {hasAnalyzed && (
-              <div className="flex-[1.5]">
-                <button 
-                  type="submit" 
-                  disabled={!canSave} 
-                  className="relative group flex h-[3.75rem] w-full items-center justify-center overflow-hidden rounded-[1.5rem] bg-emerald-success text-sm font-black uppercase tracking-widest text-white transition-all duration-300 hover:bg-emerald-success/90 hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xl shadow-emerald-success/20"
-                >
-                  <div className="relative z-10 flex items-center gap-3">
-                    {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-                    <span>{saving ? 'Vaulting...' : 'Save Record'}</span>
-                  </div>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                </button>
-              </div>
+              <button 
+                type="submit" 
+                disabled={!canSave} 
+                className="w-full h-14 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg"
+              >
+                {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+                <span>{saving ? 'Saving...' : 'Save Receipt'}</span>
+              </button>
             )}
           </div>
-
-          {Object.keys(errors).length > 0 && (
-            <div className="rounded-xl bg-red-500/10 p-2 text-center text-[9px] font-bold uppercase tracking-widest text-red-400 border border-red-500/10">
-              Fix {Object.keys(errors).length} validation error(s) above
-            </div>
-          )}
         </div>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }

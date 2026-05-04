@@ -638,7 +638,7 @@ function AppContent() {
   ];
 
   return (
-    <div className="min-h-screen bg-obsidian text-text-primary">
+    <div className="min-h-screen w-full bg-white flex flex-col overflow-hidden text-text-primary">
       {/* Toast */}
       <AnimatePresence>
         {toast && (
@@ -838,90 +838,97 @@ function AppContent() {
         {/* 'More' Bottom Sheet */}
         <AnimatePresence>
           {activeTab === 'more' && (
-            <motion.div
-              initial={{ opacity: 0, y: '100%' }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-x-0 bottom-0 z-[60] flex flex-col rounded-t-[2.5rem] border-t border-glass-border bg-black/60 p-6 pb-32 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] backdrop-blur-3xl sm:mx-auto sm:max-w-md sm:border-x sm:border-white/10"
-            >
-              <div className="mx-auto mb-6 h-1 w-12 rounded-full bg-white/20" />
-              
-              <button 
-                onClick={() => setActiveTab('dashboard')}
-                className="absolute right-6 top-6 rounded-full bg-white/5 p-2 text-white/50 transition hover:bg-white/10 hover:text-white"
+            <div className="fixed inset-0 z-50 bg-black/50 flex flex-col" onClick={() => setActiveTab('dashboard')}>
+              <motion.div
+                initial={{ opacity: 0, x: '100%' }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="ml-auto flex flex-col bg-white rounded-t-lg max-h-[90vh] overflow-y-auto w-full sm:w-96 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
               >
-                <X className="h-5 w-5" />
-              </button>
-
-              <h3 className="mb-4 px-2 text-lg font-bold text-white">More Options — 9 Star Labs</h3>
-              
-              <div className="grid gap-2">
-                {role !== 'Employee' && (
-                  <>
-                    <button onClick={() => setActiveTab('audit')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><ShieldCheck className="h-5 w-5" /></div>
-                      <div className="text-left"><p className="text-sm font-bold text-white">Audit Trail</p><p className="text-xs text-white/50">Immutable Merkle history</p></div>
-                    </button>
-                    <button onClick={() => setActiveTab('export')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><Download className="h-5 w-5" /></div>
-                      <div className="text-left"><p className="text-sm font-bold text-white">CRA Export</p><p className="text-xs text-white/50">Generate compliance ZIPs</p></div>
-                    </button>
-                    <button onClick={() => setActiveTab('approvals')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400"><CheckCircle2 className="h-5 w-5" /></div>
-                      <div className="text-left"><p className="text-sm font-bold text-white">Approvals Queue</p><p className="text-xs text-white/50">Review employee submissions</p></div>
-                    </button>
-                    <button onClick={() => setActiveTab('payables')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400"><TrendingUp className="h-5 w-5" /></div>
-                      <div className="text-left"><p className="text-sm font-bold text-white">Reimbursements</p><p className="text-xs text-white/50">Employee payables tracker</p></div>
-                    </button>
-                    <button onClick={() => setActiveTab('projects')} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><Layers className="h-5 w-5" /></div>
-                      <div className="text-left"><p className="text-sm font-bold text-white">Projects & Job Codes</p><p className="text-xs text-white/50">Manage construction sites</p></div>
-                    </button>
-                    {role === 'Owner' && (
-                      <button onClick={() => { setActiveTab('dashboard'); setShowInviteModal(true); }} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-champagne/15 text-champagne"><UserCircle2 className="h-5 w-5" /></div>
-                        <div className="text-left"><p className="text-sm font-bold text-white">Invite Team Member</p><p className="text-xs text-white/50">Generate 6-digit access code</p></div>
-                      </button>
-                    )}
-                    <button onClick={async () => {
-                      const code = window.prompt('Enter 6-digit access code:');
-                      if (!code || code.trim().length !== 6) return;
-                      const confirm = window.confirm(`Are you sure you want to redeem access code ${code}?`);
-                      if (confirm) {
-                        try {
-                          const res = await redeemAccessCode(code.trim(), user?.id || '');
-                          if (res.success) {
-                            showToast('success', `Success! Assigned role: ${res.role}. Refreshing...`);
-                            setTimeout(() => window.location.reload(), 2000);
-                          } else {
-                            showToast('error', res.error || 'Invalid or expired code.');
-                          }
-                        } catch (err: any) {
-                          showToast('error', err.message || 'Failed to redeem code.');
-                        }
-                      }
-                    }} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15 text-blue-400"><ShieldCheck className="h-5 w-5" /></div>
-                      <div className="text-left"><p className="text-sm font-bold text-white">Redeem Access Code</p><p className="text-xs text-white/50">Join a workspace</p></div>
-                    </button>
-                  </>
-                )}
-                
-                <div className="mt-4 px-2">
-                  <p className="mb-2 text-xs font-bold uppercase tracking-widest text-white/40">Legal & Settings</p>
-                  <Link href="/terms" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-white/5">
-                    <Scale className="h-4 w-4 text-white/50" />
-                    <span className="text-sm font-semibold text-white/80">Terms of Service</span>
-                  </Link>
-                  <Link href="/privacy" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-white/5">
-                    <ShieldCheck className="h-4 w-4 text-white/50" />
-                    <span className="text-sm font-semibold text-white/80">Privacy Policy (PIPEDA)</span>
-                  </Link>
+                {/* Header with close button INSIDE the sheet */}
+                <div className="sticky top-0 bg-white border-b flex justify-between items-center p-6 z-10">
+                  <h2 className="text-xl font-bold text-gray-900">More Options</h2>
+                  <button
+                    onClick={() => setActiveTab('dashboard')}
+                    className="text-3xl font-bold leading-none text-gray-400 hover:text-gray-600 transition"
+                    aria-label="Close menu"
+                  >
+                    ✕
+                  </button>
                 </div>
-              </div>
-            </motion.div>
+
+                {/* Scrollable content */}
+                <div className="overflow-y-auto flex-1 p-2">
+                  <div className="grid gap-2">
+                    {role !== 'Employee' && (
+                      <>
+                        <button onClick={() => setActiveTab('audit')} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><ShieldCheck className="h-5 w-5" /></div>
+                          <div className="text-left"><p className="text-sm font-bold text-gray-900">Audit Trail</p><p className="text-xs text-gray-500">Immutable Merkle history</p></div>
+                        </button>
+                        <button onClick={() => setActiveTab('export')} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><Download className="h-5 w-5" /></div>
+                          <div className="text-left"><p className="text-sm font-bold text-gray-900">CRA Export</p><p className="text-xs text-gray-500">Generate compliance ZIPs</p></div>
+                        </button>
+                        <button onClick={() => setActiveTab('approvals')} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600"><CheckCircle2 className="h-5 w-5" /></div>
+                          <div className="text-left"><p className="text-sm font-bold text-gray-900">Approvals Queue</p><p className="text-xs text-gray-500">Review employee submissions</p></div>
+                        </button>
+                        <button onClick={() => setActiveTab('payables')} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-600"><TrendingUp className="h-5 w-5" /></div>
+                          <div className="text-left"><p className="text-sm font-bold text-gray-900">Reimbursements</p><p className="text-xs text-gray-500">Employee payables tracker</p></div>
+                        </button>
+                        <button onClick={() => setActiveTab('projects')} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><Layers className="h-5 w-5" /></div>
+                          <div className="text-left"><p className="text-sm font-bold text-gray-900">Projects & Job Codes</p><p className="text-xs text-gray-500">Manage construction sites</p></div>
+                        </button>
+                        {role === 'Owner' && (
+                          <button onClick={() => { setActiveTab('dashboard'); setShowInviteModal(true); }} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><UserCircle2 className="h-5 w-5" /></div>
+                            <div className="text-left"><p className="text-sm font-bold text-gray-900">Invite Team Member</p><p className="text-xs text-gray-500">Generate 6-digit access code</p></div>
+                          </button>
+                        )}
+                        <button onClick={async () => {
+                          const code = window.prompt('Enter 6-digit access code:');
+                          if (!code || code.trim().length !== 6) return;
+                          const confirm = window.confirm(`Are you sure you want to redeem access code ${code}?`);
+                          if (confirm) {
+                            try {
+                              const res = await redeemAccessCode(code.trim(), user?.id || '');
+                              if (res.success) {
+                                showToast('success', `Success! Assigned role: ${res.role}. Refreshing...`);
+                                setTimeout(() => window.location.reload(), 2000);
+                              } else {
+                                showToast('error', res.error || 'Invalid or expired code.');
+                              }
+                            } catch (err: any) {
+                              showToast('error', err.message || 'Failed to redeem code.');
+                            }
+                          }
+                        }} className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 transition hover:bg-gray-100">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><ShieldCheck className="h-5 w-5" /></div>
+                          <div className="text-left"><p className="text-sm font-bold text-gray-900">Redeem Access Code</p><p className="text-xs text-gray-500">Join a workspace</p></div>
+                        </button>
+                      </>
+                    )}
+                    
+                    <div className="mt-4 px-2">
+                      <p className="mb-2 text-xs font-bold uppercase tracking-widest text-gray-400">Legal & Settings</p>
+                      <Link href="/terms" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-gray-100">
+                        <Scale className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm font-semibold text-gray-700">Terms of Service</span>
+                      </Link>
+                      <Link href="/privacy" className="flex items-center gap-3 rounded-2xl p-3 transition hover:bg-gray-100">
+                        <ShieldCheck className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm font-semibold text-gray-700">Privacy Policy (PIPEDA)</span>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
           )}
         </AnimatePresence>
       </main>
