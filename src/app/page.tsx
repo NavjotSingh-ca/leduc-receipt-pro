@@ -483,9 +483,11 @@ function AppContent() {
     if (!hasMounted) return;
 
     let active = true;
+    console.log('🔐 Setting up auth listener...');
 
     // Direct getUser check
     supabase.auth.getUser().then(({ data, error: userError }) => {
+      console.log('🔐 getUser result:', data.user ? 'USER FOUND' : 'NO USER', userError || '');
       if (!active) return;
       if (userError || !data.user) {
         setAuthLoading(false);
@@ -494,18 +496,43 @@ function AppContent() {
       
       setUser(data.user);
       getUserRole(data.user.id)
-        .then(r => { if (active) { setRole(r); setAuthLoading(false); } })
-        .catch(() => { if (active) { setRole('Employee'); setAuthLoading(false); } });
+        .then(r => { 
+          if (active) { 
+            console.log('🔐 Role loaded:', r);
+            setRole(r); 
+            setAuthLoading(false); 
+          } 
+        })
+        .catch((err) => { 
+          if (active) { 
+            console.error('🔐 Role load failed:', err);
+            setRole('Employee'); 
+            setAuthLoading(false); 
+          } 
+        });
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔐 Auth event:', event, 'Session:', session?.user?.id || 'NO USER');
       if (!active) return;
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
         getUserRole(currentUser.id)
-          .then(r => { if (active) { setRole(r); setAuthLoading(false); } })
-          .catch(() => { if (active) { setRole('Employee'); setAuthLoading(false); } });
+          .then(r => { 
+            if (active) { 
+              console.log('🔐 Role updated via event:', r);
+              setRole(r); 
+              setAuthLoading(false); 
+            } 
+          })
+          .catch((err) => { 
+            if (active) { 
+              console.error('🔐 Role update failed:', err);
+              setRole('Employee'); 
+              setAuthLoading(false); 
+            } 
+          });
       } else {
         setAuthLoading(false);
       }
@@ -513,6 +540,7 @@ function AppContent() {
 
     const safetyTimeout = setTimeout(() => {
       if (active && authLoading) {
+        console.warn('⚠️ Auth safety timeout reached. Forcing loader exit.');
         setAuthLoading(false);
       }
     }, 4500);
