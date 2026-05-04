@@ -156,7 +156,7 @@ function AuthScreen() {
             showToast('success', 'Account created. Please check your email to confirm.');
           } catch (err: any) {
             console.error('Failed to create organization:', err);
-            showToast('warning', 'Account created but organization setup failed. Please contact support.');
+            showToast('info', 'Account created but organization setup failed. Please contact support.');
           }
         } else {
           showToast('success', 'Account created. Please check your email to confirm.');
