@@ -46,7 +46,7 @@ export default function RootLayout({
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
       </head>
-      <body className="font-sans antialiased bg-white selection:bg-champagne/30">
+      <body className="font-sans antialiased selection:bg-champagne/30">
         <SmoothScroll>
           <Providers>
             {children}

@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
+import { ThemeProvider } from './ThemeProvider';
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   // Register Service Worker
@@ -29,5 +30,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="light"
+        enableSystem={false}
+      >
+        {children}
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
 }

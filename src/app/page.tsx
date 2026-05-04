@@ -41,6 +41,7 @@ import InviteModal from '@/components/InviteModal';
 import ProjectManager from '@/components/ProjectManager';
 import { AuroraBackground } from '@/components/aceternity/aurora-background';
 import { Marquee } from '@/components/magicui/marquee';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { supabase } from '@/lib/supabase';
 import type { ReceiptRow, UserRole } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
@@ -680,41 +681,45 @@ function AppContent() {
             </div>
           </div>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setRoleOpen((v) => !v)}
-              className="flex items-center gap-2 rounded-full border border-glass-border bg-surface px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-glass-border-hover hover:bg-surface-raised"
-            >
-              <UserCircle2 className="h-4 w-4 text-champagne" />
-              <span>Role: {role}</span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 text-text-muted transition ${roleOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setRoleOpen((v) => !v)}
+                className="flex items-center gap-2 rounded-full border border-glass-border bg-surface px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-glass-border-hover hover:bg-surface-raised"
+              >
+                <UserCircle2 className="h-4 w-4 text-champagne" />
+                <span>Role: {role}</span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 text-text-muted transition ${roleOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
 
-            <AnimatePresence>
-              {roleOpen && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                  className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-glass-border bg-surface p-2 shadow-2xl"
-                >
-                  <div className="pt-1">
-                    <button
-                      type="button"
-                      onClick={handleSignOut}
-                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-400"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      <span>Sign out</span>
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              <AnimatePresence>
+                {roleOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                    className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-glass-border bg-surface p-2 shadow-2xl"
+                  >
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-400"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        <span>Sign out</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </header>

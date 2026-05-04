@@ -3,6 +3,41 @@
 /* ─── Obsidian Elegance Design System ─── */
 
 :root {
+  /* ─── Light Mode (Default) ─── */
+  --obsidian: #fcfcfc;
+  --surface: #ffffff;
+  --surface-raised: #f3f4f6;
+  --surface-hover: #e5e7eb;
+  --champagne: #8b7355;
+  --champagne-dim: #6b5a45;
+  --champagne-glow: rgba(139, 115, 85, 0.08);
+  --emerald-success: #0d4c3c;
+  --emerald-light: #10b981;
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-hover: rgba(0, 0, 0, 0.14);
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+
+  /* ─── Z-Index Scale ─── */
+  --z-overlay: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+  --z-command: 400;
+
+  /* ─── Tremor Light Theme Overrides ─── */
+  --tremor-background-subtle: var(--surface-raised);
+  --tremor-border-default: var(--glass-border);
+  --tremor-content-default: var(--text-secondary);
+  --tremor-content-emphasis: var(--text-primary);
+  --tremor-content-strong: var(--text-primary);
+}
+
+.dark {
+  /* ─── Obsidian Elegance (Dark Mode) ─── */
   --obsidian: #0c0c0c;
   --surface: #1a1a1a;
   --surface-raised: #242424;
@@ -20,12 +55,6 @@
   --danger: #ef4444;
   --warning: #f59e0b;
   --info: #60a5fa;
-
-  /* ─── Z-Index Scale ─── */
-  --z-overlay: 100;
-  --z-modal: 200;
-  --z-toast: 300;
-  --z-command: 400;
 
   /* ─── Tremor Dark Theme Overrides ─── */
   --tremor-background-subtle: var(--surface-raised);
@@ -98,8 +127,8 @@ body {
 
 /* ─── Dark Inputs ─── */
 
-input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator {
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(0.7);
 }
 
@@ -113,7 +142,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 /* ─── Liquid Glass Utility ─── */
 
 .liquid-glass {
-  background: rgba(26, 26, 26, 0.75);
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   border: 1px solid var(--glass-border);
