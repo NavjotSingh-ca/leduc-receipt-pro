@@ -156,7 +156,7 @@ function AuthScreen() {
             showToast('success', 'Account created. Please check your email to confirm.');
           } catch (err: any) {
             console.error('Failed to create organization:', err);
-            showToast('info', 'Account created but organization setup failed. Please contact support.');
+            showToast('warning', 'Account created but organization setup failed. Please contact support.');
           }
         } else {
           showToast('success', 'Account created. Please check your email to confirm.');
@@ -568,8 +568,6 @@ function AppContent() {
     };
   }, [userId, queryClient]);
 
-  if (authLoading || !hasMounted) return <FullPageLoader />;
-
   const handleFilterClick = useCallback((filter: string) => {
     setActiveFilter(filter);
     setTabWithUrl('receipts');
@@ -592,7 +590,7 @@ function AppContent() {
 
   const [showInviteModal, setShowInviteModal] = useState(false);
 
-  if (authLoading) return <FullPageLoader />;
+  if (authLoading || !hasMounted) return <FullPageLoader />;
   if (!user) return <AuthScreen />;
 
   // Only Owner/Accountant see these tabs
