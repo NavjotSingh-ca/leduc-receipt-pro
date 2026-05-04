@@ -608,7 +608,10 @@ export default function ScannerForm({
                 />
               </div>
             </div>
-          </div>        </div>
+          </div>
+        </div>
+      </section>
+    </div>
 
         {/* Buttons - sticky at bottom */}
         <div className="sticky bottom-0 bg-white border-t p-4 space-y-3 z-20">

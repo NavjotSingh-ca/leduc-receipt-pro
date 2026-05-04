@@ -43,7 +43,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en-CA" className={inter.variable}>
-      <body className="font-sans antialiased bg-obsidian selection:bg-champagne/30">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+      </head>
+      <body className="font-sans antialiased bg-white selection:bg-champagne/30">
         <SmoothScroll>
           <Providers>
             {children}
