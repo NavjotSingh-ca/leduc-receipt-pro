@@ -1,7 +1,11 @@
 'use server';
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { supabase } from '@/lib/supabase';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export interface ReceiptLineItem {
   description: string;
@@ -282,6 +286,14 @@ Return the corrected JSON only. Keep the same schema.`;
 
 export async function scanReceipt(base64Image: string, captureSource: string = 'camera'): Promise<ScanReceiptResult> {
   // 1. Verify user is authenticated
+  const cookieStore = await cookies();
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll: () => cookieStore.getAll(),
+      setAll: () => {}, // Server actions can't set cookies
+    },
+  });
+
   const { data: authData } = await supabase.auth.getUser();
   if (!authData?.user) {
     return { success: false, error: 'Authentication required.' };
