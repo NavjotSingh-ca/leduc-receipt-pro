@@ -5,15 +5,12 @@ export function proxy(request: NextRequest) {
   
   const cspHeader = `
     default-src 'self';
-    script-src 'self' 'nonce-${nonce}' 'strict-dynamic';
+    script-src 'self' 'unsafe-inline' https://*.supabase.co;
     style-src 'self' 'unsafe-inline';
-    img-src 'self' blob: data: https://*.supabase.co;
+    img-src 'self' blob: data: https:;
     font-src 'self' data:;
-    connect-src 'self' wss://*.supabase.co https://*.supabase.co https://generativelanguage.googleapis.com;
-    frame-ancestors 'none';
-    base-uri 'self';
-    form-action 'self';
-    object-src 'none';
+    connect-src 'self' https://*.supabase.co https://*.googleapis.com;
+    frame-ancestors 'none'
   `;
 
   // Replace newline characters and spaces
