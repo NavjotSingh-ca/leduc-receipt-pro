@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Drawer } from 'vaul';
 import {
   AlertCircle,
   Camera,
@@ -899,44 +900,58 @@ function AppContent() {
               return null;
             }
             /* Accountant: grant access to audit (was incorrectly hidden) */
-            return item.primary ? (
-              <div key={item.id} className="relative -mt-6 flex flex-col items-center gap-1">
+          <LayoutGroup id="nav">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.id;
+              
+              return item.primary ? (
+                <div key={item.id} className="relative -mt-6 flex flex-col items-center gap-1">
+                  <motion.button
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    whileTap={{ scale: 0.88 }}
+                    whileHover={{ scale: 1.06 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+                    className={`flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition ${
+                      isActive
+                        ? 'bg-emerald-success text-white shadow-emerald-success/30'
+                        : 'bg-emerald-success/80 text-white shadow-emerald-success/20 hover:bg-emerald-success'
+                    }`}
+                  >
+                    {item.icon}
+                  </motion.button>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-light">
+                    {item.label}
+                  </span>
+                </div>
+              ) : (
                 <motion.button
+                  key={item.id}
                   type="button"
                   onClick={() => setActiveTab(item.id)}
-                  whileTap={{ scale: 0.88 }}
-                  whileHover={{ scale: 1.06 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-                  className={`flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition ${
-                    activeTab === item.id
-                      ? 'bg-emerald-success text-white shadow-emerald-success/30'
-                      : 'bg-emerald-success/80 text-white shadow-emerald-success/20 hover:bg-emerald-success'
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                  className={`relative flex min-w-[64px] flex-col items-center gap-1 rounded-2xl px-3 py-2 transition ${
+                    isActive ? 'text-champagne' : 'text-text-muted hover:text-text-secondary'
                   }`}
                 >
-                  {item.icon}
+                  {isActive && (
+                    <motion.div
+                      layoutId="active-pill"
+                      className="absolute inset-0 bg-champagne/10 rounded-2xl"
+                      transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                    />
+                  )}
+                  <div className="relative z-10 flex flex-col items-center gap-1">
+                    {item.icon}
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">
+                      {item.label}
+                    </span>
+                  </div>
                 </motion.button>
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-light">
-                  {item.label}
-                </span>
-              </div>
-            ) : (
-              <motion.button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveTab(item.id)}
-                whileTap={{ scale: 0.9 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                className={`flex min-w-[64px] flex-col items-center gap-1 rounded-2xl px-3 py-2 transition ${
-                  activeTab === item.id ? 'text-champagne' : 'text-text-muted hover:text-text-secondary'
-                }`}
-              >
-                {item.icon}
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">
-                  {item.label}
-                </span>
-              </motion.button>
-            );
-          })}
+              );
+            })}
+          </LayoutGroup>
         </div>
       </nav>
 
@@ -953,12 +968,20 @@ function AppContent() {
       <CommandPalette onAction={handleCommand} />
 
       {/* Invite Modal */}
-      {showInviteModal && (
-        <InviteModal
-          onClose={() => setShowInviteModal(false)}
-          businessUnits={businessUnits}
-        />
-      )}
+      <Drawer.Root open={showInviteModal} onOpenChange={setShowInviteModal}>
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm" />
+          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[160] flex flex-col rounded-t-[2.5rem] border-t border-glass-border bg-surface outline-none focus:ring-0">
+            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-glass-border" />
+            <div className="p-6">
+              <InviteModal
+                onClose={() => setShowInviteModal(false)}
+                businessUnits={businessUnits}
+              />
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
     </div>
   );
 }

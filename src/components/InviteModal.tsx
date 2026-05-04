@@ -40,139 +40,117 @@ export default function InviteModal({ onClose, businessUnits }: InviteModalProps
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 22 }}
-          className="w-full max-w-md rounded-t-[2.5rem] sm:rounded-[2.5rem] border border-glass-border bg-surface p-8 shadow-2xl max-h-[90vh] overflow-y-auto"
-          onClick={(e) => e.stopPropagation()}
+    <div className="w-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-8 pb-4 border-b border-glass-border">
+        <div className="flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-champagne/15 text-champagne champagne-glow">
+            <ShieldCheck className="h-7 w-7" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-text-primary">Invite Team Member</h2>
+            <p className="mt-1 text-sm text-text-secondary">Generate a 6-digit access code.</p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-xl p-2 text-text-muted transition hover:bg-surface-raised hover:text-text-primary"
         >
-          {/* Header */}
-          <div className="sticky top-0 bg-surface border-b border-glass-border/50 mb-8 flex items-start justify-between z-10 pb-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-champagne/15 text-champagne champagne-glow">
-                <ShieldCheck className="h-7 w-7" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-text-primary">Invite Team Member</h2>
-                <p className="mt-1 text-sm text-text-secondary">Generate a 6-digit access code.</p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="rounded-xl p-2 text-text-muted transition hover:bg-surface-raised hover:text-text-primary"
-            >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
+          <X className="h-6 w-6" />
+        </button>
+      </div>
 
-          {/* Role Selector */}
-          <div className="space-y-5">
-            <div>
-              <label className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-champagne">
-                Role to Assign
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['Employee', 'Accountant'] as const).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className={[
-                      'rounded-2xl border py-3 text-sm font-semibold transition',
-                      role === r
-                        ? 'border-blue-500/40 bg-blue-50 text-blue-600'
-                        : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300',
-                    ].join(' ')}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Business Unit (optional) */}
-            {businessUnits.length > 0 && (
-              <div>
-                <label className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-text-muted">
-                  Business Unit (Optional)
-                </label>
-                <select
-                  value={businessUnitId}
-                  onChange={(e) => setBusinessUnitId(e.target.value)}
-                  className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none focus:border-blue-400"
-                >
-                  <option value="">No specific unit</option>
-                  {businessUnits.map((bu) => (
-                    <option key={bu.id} value={bu.id}>{bu.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Error */}
-            {error && (
-              <p className="rounded-xl bg-red-500/10 px-4 py-2 text-sm text-red-400">{error}</p>
-            )}
-
-            {/* Generated Code Display */}
-            {generatedCode && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-center"
+      {/* Role Selector */}
+      <div className="space-y-6">
+        <div>
+          <label className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-champagne">
+            Role to Assign
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {(['Employee', 'Accountant'] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRole(r)}
+                className={[
+                  'rounded-2xl border py-4 text-sm font-semibold transition',
+                  role === r
+                    ? 'border-champagne/40 bg-champagne/10 text-champagne'
+                    : 'border-glass-border bg-surface-raised text-text-secondary hover:border-glass-border-hover',
+                ].join(' ')}
               >
-                <p className="mb-2 text-xs font-bold uppercase tracking-widest text-blue-600/70">
-                  Invite Code — Expires in 24h
-                </p>
-                <p className="text-5xl font-black tracking-[0.4em] text-blue-600">{generatedCode}</p>
-                <button
-                  onClick={handleCopy}
-                  className={[
-                    'mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition',
-                    copied
-                      ? 'bg-emerald-100 text-emerald-600'
-                      : 'bg-white border border-gray-200 text-gray-600 hover:text-gray-900',
-                  ].join(' ')}
-                >
-                  <Copy className="h-4 w-4" />
-                  {copied ? 'Copied!' : 'Copy Code'}
-                </button>
-                <p className="mt-3 text-xs text-gray-500">
-                  Share this code with your team member.
-                </p>
-              </motion.div>
-            )}
-
-            {/* Generate / Regenerate Button */}
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={loading}
-              className="inline-flex h-14 w-full items-center justify-center gap-3 rounded-[2rem] bg-blue-600 text-base font-black text-white shadow-xl shadow-blue-600/20 transition hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : generatedCode ? (
-                <RefreshCw className="h-5 w-5" />
-              ) : (
-                <ShieldCheck className="h-5 w-5" />
-              )}
-              {loading ? 'Generating…' : generatedCode ? 'Generate New Code' : 'Generate Code'}
-            </button>
+                {r}
+              </button>
+            ))}
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
-  );
+        </div>
+
+        {/* Business Unit (optional) */}
+        {businessUnits.length > 0 && (
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-text-muted">
+              Business Unit (Optional)
+            </label>
+            <select
+              value={businessUnitId}
+              onChange={(e) => setBusinessUnitId(e.target.value)}
+              className="w-full rounded-2xl border border-glass-border bg-surface-raised px-4 py-3 text-sm text-text-primary outline-none focus:border-champagne/40"
+            >
+              <option value="">No specific unit</option>
+              {businessUnits.map((bu) => (
+                <option key={bu.id} value={bu.id}>{bu.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <p className="rounded-xl bg-red-500/10 px-4 py-2 text-sm text-red-400">{error}</p>
+        )}
+
+        {/* Generated Code Display */}
+        {generatedCode && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-[2.5rem] border border-emerald-500/20 bg-emerald-500/[0.04] p-6 text-center"
+          >
+            <p className="mb-2 text-xs font-bold uppercase tracking-widest text-emerald-light/70">
+              Invite Code — Expires in 24h
+            </p>
+            <p className="text-5xl font-black tracking-[0.4em] text-emerald-light">{generatedCode}</p>
+            <button
+              onClick={handleCopy}
+              className={[
+                'mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition',
+                copied
+                  ? 'bg-emerald-500/15 text-emerald-light'
+                  : 'bg-surface border border-glass-border text-text-secondary hover:text-text-primary',
+              ].join(' ')}
+            >
+              <Copy className="h-4 w-4" />
+              {copied ? 'Copied!' : 'Copy Code'}
+            </button>
+          </motion.div>
+        )}
+
+        {/* Generate / Regenerate Button */}
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={loading}
+          className="inline-flex h-14 w-full items-center justify-center gap-3 rounded-[2rem] bg-champagne text-base font-black text-obsidian shadow-xl shadow-champagne/20 transition hover:bg-champagne-dim disabled:opacity-50"
+        >
+          {loading ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : generatedCode ? (
+            <RefreshCw className="h-5 w-5" />
+          ) : (
+            <ShieldCheck className="h-5 w-5" />
+          )}
+          {loading ? 'Generating…' : generatedCode ? 'Generate New Code' : 'Generate Code'}
+        </button>
+      </div>
+    </div>
 }

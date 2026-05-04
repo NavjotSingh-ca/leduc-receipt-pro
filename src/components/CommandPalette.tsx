@@ -67,10 +67,10 @@ export default function CommandPalette({ onAction }: CommandPaletteProps) {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#121212]/90 shadow-2xl backdrop-blur-3xl"
+              className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-glass-border bg-surface shadow-2xl backdrop-blur-3xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
+              <div className="flex items-center gap-3 border-b border-glass-border px-4 py-4">
                 <Search className="h-5 w-5 text-champagne" />
                 <input
                   type="text"
@@ -78,35 +78,37 @@ export default function CommandPalette({ onAction }: CommandPaletteProps) {
                   placeholder="Search 9 Star Labs — Type a command..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-transparent text-lg font-medium text-white outline-none placeholder:text-white/30"
+                  className="w-full bg-transparent text-lg font-medium text-text-primary outline-none placeholder:text-text-muted"
                 />
-                <div className="flex items-center gap-1 text-[10px] uppercase text-white/40">
-                  <span className="rounded bg-black/50 px-1 py-0.5">Esc</span> to close
+                <div className="flex items-center gap-1 text-[10px] uppercase text-text-muted">
+                  <span className="rounded bg-surface-raised px-1.5 py-1 font-bold">Esc</span> to close
                 </div>
               </div>
 
               <div className="max-h-[60vh] overflow-y-auto p-2">
                 {filteredItems.length === 0 ? (
-                  <div className="py-10 text-center text-white/40">
+                  <div className="py-10 text-center text-text-muted">
                     <Command className="mx-auto mb-2 h-8 w-8 opacity-20" />
                     <p className="text-sm">No actions found.</p>
                   </div>
                 ) : (
                   filteredItems.map((item) => (
-                    <button
+                    <motion.button
                       key={item.id}
                       type="button"
+                      whileHover={{ scale: 1.01, x: 4 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => handleAction(item.id)}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-white/5"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-surface-raised"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-champagne/10 text-champagne">
                         <item.icon className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-white/90">{item.label}</p>
-                        <p className="text-xs text-white/50">{item.description}</p>
+                        <p className="text-sm font-semibold text-text-primary">{item.label}</p>
+                        <p className="text-xs text-text-secondary">{item.description}</p>
                       </div>
-                    </button>
+                    </motion.button>
                   ))
                 )}
               </div>

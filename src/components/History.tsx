@@ -23,7 +23,8 @@ import {
   XCircle,
   BrainCircuit,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
+import { Drawer } from 'vaul';
 
 import { semanticSearchAction } from '@/app/actions/semantic-search';
 import { updateReceiptApproval, updateReceiptNotes, deleteReceipt, getReceiptsPaginated } from '@/lib/services/receipts';
@@ -445,17 +446,30 @@ export default function History({
         )}
       </div>
 
-      <AnimatePresence mode="wait">
-        {selectedReceipt && (
-          <ReceiptDetailModal
-            key={`detail-${selectedReceipt.id}`}
-            receipt={selectedReceipt}
-            onClose={() => setSelectedReceipt(null)}
-            role={role}
-            onUpdate={onUpdate}
-          />
-        )}
-      </AnimatePresence>
+      <Drawer.Root 
+        open={!!selectedReceipt} 
+        onOpenChange={(open) => !open && setSelectedReceipt(null)}
+        shouldScaleBackground
+      >
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm" />
+          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[160] flex flex-col rounded-t-[2.5rem] border-t border-glass-border bg-surface outline-none focus:ring-0 sm:max-w-3xl sm:mx-auto sm:mb-6 sm:rounded-[2.5rem] sm:max-h-[92vh]">
+            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-glass-border" />
+            
+            {selectedReceipt && (
+              <div className="flex-1 overflow-y-auto">
+                <ReceiptDetailModal
+                  key={`detail-${selectedReceipt.id}`}
+                  receipt={selectedReceipt}
+                  onClose={() => setSelectedReceipt(null)}
+                  role={role}
+                  onUpdate={onUpdate}
+                />
+              </div>
+            )}
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
     </>
   );
 }
@@ -616,21 +630,7 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
   const integrityHash = receipt.integrity_hash ?? '';
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[150] flex items-end justify-center bg-black/80 backdrop-blur-2xl sm:items-center p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ y: 20, opacity: 0, scale: 0.98 }}
-        animate={{ y: 0, opacity: 1, scale: 1 }}
-        exit={{ y: 20, opacity: 0, scale: 0.98 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[2.5rem] border border-glass-border bg-surface shadow-2xl sm:max-w-3xl sm:rounded-[2.5rem] sm:mb-8"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex w-full flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-glass-border px-5 py-4">
           <div className="min-w-0">
             <h3 className="truncate text-lg font-bold text-text-primary">
@@ -998,7 +998,6 @@ function ReceiptDetailModal({ receipt, onClose, role = 'Owner', onUpdate }: Rece
             )}
           </div>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
   );
 }

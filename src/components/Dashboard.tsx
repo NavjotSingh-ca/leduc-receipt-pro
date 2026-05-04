@@ -143,7 +143,12 @@ function StatCard({
   className?: string;
   trend?: { value: string, up: boolean } | null;
 }) {
+  return (
     <motion.div
+      variants={{
+        hidden: { opacity: 0, y: 20 },
+        show: { opacity: 1, y: 0 }
+      }}
       whileHover={{ y: -4, scale: 1.01 }}
       transition={{ type: 'spring', stiffness: 400, damping: 17 }}
       className="h-full"
@@ -348,7 +353,20 @@ export default function Dashboard({ onFilterClick, role = 'Owner', userId }: Das
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <motion.div 
+        variants={{
+          hidden: { opacity: 0 },
+          show: {
+            opacity: 1,
+            transition: {
+              staggerChildren: 0.1
+            }
+          }
+        }}
+        initial="hidden"
+        animate="show"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+      >
         <StatCard
           label="Total Spent"
           value={currencyFormatter.format(totalSpent)}
@@ -370,7 +388,7 @@ export default function Dashboard({ onFilterClick, role = 'Owner', userId }: Das
           helper="Stored in the vault"
           icon={<Receipt className="h-5 w-5" />}
         />
-      </div>
+      </motion.div>
 
       {/* GST/PST Recovery Meter */}
       <div className="grid gap-4 sm:grid-cols-[1fr_1fr] lg:grid-cols-[1fr_1fr_1fr]">
